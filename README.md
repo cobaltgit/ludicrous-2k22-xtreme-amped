@@ -1,8 +1,26 @@
-# GLupeN64
+# LudicrousN64 Xtreme
 
-<b>Please read the [Wiki](https://github.com/loganmc10/GLupeN64/wiki), it has information on how to fix common 'gotchas'</b>
+LudicrousN64 Xtreme is [mupen64plus](https://github.com/mupen64plus/mupen64plus-core) + [RSP-HLE](https://github.com/mupen64plus/mupen64plus-rsp-hle) + [GLideN64](https://github.com/gonetz/GLideN64) + [libretro](http://www.libretro.com/) + KMFD Xtreme Additions!
 
-GLupeN64 is [mupen64plus](https://github.com/mupen64plus/mupen64plus-core) + [RSP-HLE](https://github.com/mupen64plus/mupen64plus-rsp-hle) + [GLideN64](https://github.com/gonetz/GLideN64) + [libretro](http://www.libretro.com/)
+#### LudicrousN64 Xtreme?
+
+LudicrousN64 Xtreme is a custom, personalized N64 Build by KMFDManic, which is absolutely unstable and not meant for normal, everyday, end users.  It can have a myriad of glitches (black screen, flickering, freezes, crashes...simply due to the fact that it deviates from the normalcy of Stability's sake!  
+
+#### Should I use this?
+
+Probably not!  It is highly recommended you stick to the tried and true Mupen (Next), Parallel roll-outs, since they are far more Stable and Reliable! 
+
+#### What is Turbo Boost Mode Activate!?
+
+This is where Stability truly goes out the window!  It is, more or less, meant for mod masochists who want to push the limits of N64 Emulation to ridiculous, ludicrous proportions, kind of like "Goin' Plaid" in Spaceballs!  Depending on X Factor between 0-6. you can decrease stability of any given game, at cost of potential glitches, black screens, etc...gaining performance and speed!
+
+#### What is Xtreme OverClock!?
+
+Calculations of Operations are sped up, in such a way, that you have "pseudo" OverClock, better performance/speed...perimeters between X1-XX; 0 being hard coded values.
+
+#### Synched and Desynched? Xtreme and Ludicrous?
+
+Synched would be having RetroArch Video and Audio BOTH Synchronized, like Assassin's Creed...with very nice, Xtreme performance and speed (X Factor variable!)  Taking things even further, Desynched are BOTH Unsynchronized, which WILL be unstable, but drastically, increase performance and speed to Ludicrous Proportions, depending on which X Factor is currently selected in Core Options!
 
 #### How is this different from [mupen64plus-libretro](https://github.com/libretro/mupen64plus-libretro)?
 
@@ -25,8 +43,6 @@ Most of the modifications have involved removing dependencies on SDL, and modify
 
 Cheats
 
-32-bit Windows, iOS. I don't have those types of systems so I can't test them. I am more than willing to accept pull requests however.
-
 #### Acknowledgments
 
-A special thanks to the mupen64plus team, the libretro team, and gonetz and those that have worked on GLideN64. I haven't really written any code for this project, I'm just putting together the work by other people.
+A VERY special thanks to the mupen64plus team, ALL of the libretro team, gonetz, loganmc10, m4xw, Themaister, and ANYONE else who has ever worked with N64 and/or GlideN64 coding! 

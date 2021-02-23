@@ -22,8 +22,10 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+#ifdef USE_SDL
 #include <SDL.h>
 #include <SDL_thread.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -55,6 +57,7 @@
 #include "util.h"
 #include "vi/vi_controller.h"
 #include "workqueue.h"
+#include "r4300/new_dynarec/new_dynarec.h"
 
 #ifdef LIBMINIZIP
     #include <unzip.h>
@@ -65,7 +68,7 @@
 #endif
 
 static const char* savestate_magic = "M64+SAVE";
-static const int savestate_latest_version = 0x00010000;  /* 1.0 */
+static const int savestate_latest_version = 0x00010100;  /* 1.1 */
 static const unsigned char pj64_magic[4] = { 0xC8, 0xA6, 0xD8, 0x23 };
 
 static savestates_job job = savestates_job_nothing;
@@ -75,13 +78,18 @@ static char *fname = NULL;
 static unsigned int slot = 0;
 static int autoinc_save_slot = 0;
 
+#ifdef USE_SDL
 static SDL_mutex *savestates_lock;
+#endif
 
 struct savestate_work {
     char *filepath;
     char *data;
     size_t size;
     struct work_struct work;
+#ifdef __LIBRETRO__
+    void *mempointer;
+#endif
 };
 
 /* Returns the malloc'd full path of the currently selected savestate. */
@@ -191,27 +199,37 @@ static void savestates_clear_job(void)
 #define PUTDATA(buff, type, value) \
     do { type x = value; PUTARRAY(&x, buff, type, 1); } while(0)
 
-static int savestates_load_m64p(char *filepath)
+#ifndef __LIBRETRO__
+int savestates_load_m64p(char *filepath)
+#else
+int savestates_load_m64p(const void *data)
+#endif
 {
     unsigned char header[44];
-    gzFile f;
-    int version;
+    unsigned int version;
     int i;
     uint32_t FCR31;
 
     size_t savestateSize;
     unsigned char *savestateData, *curr;
     char queue[1024];
+    unsigned char additionalData[4];
 
     uint32_t* cp0_regs = r4300_cp0_regs();
 
+#ifdef USE_SDL
     SDL_LockMutex(savestates_lock);
+#endif
 
+#ifndef __LIBRETRO__
+    gzFile f;
     f = gzopen(filepath, "rb");
     if(f==NULL)
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Could not open state file: %s", filepath);
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
 
@@ -220,7 +238,9 @@ static int savestates_load_m64p(char *filepath)
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Could not read header from state file %s", filepath);
         gzclose(f);
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
     curr = header;
@@ -229,28 +249,48 @@ static int savestates_load_m64p(char *filepath)
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "State file: %s is not a valid Mupen64plus savestate.", filepath);
         gzclose(f);
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
+#else
+    memcpy(header, data, 44);
+    curr = header;
+    if(strncmp((char *)curr, savestate_magic, 8)!=0)
+    {
+        main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Savestate is not a valid Mupen64plus savestate.");
+        return 0;
+    }
+#endif
+
     curr += 8;
 
     version = *curr++;
     version = (version << 8) | *curr++;
     version = (version << 8) | *curr++;
     version = (version << 8) | *curr++;
-    if(version != 0x00010000)
+    if((version >> 16) != (savestate_latest_version >> 16))
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "State version (%08x) isn't compatible. Please update Mupen64Plus.", version);
+#ifndef __LIBRETRO__
         gzclose(f);
+#endif
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
 
     if(memcmp((char *)curr, ROM_SETTINGS.MD5, 32))
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "State ROM MD5 does not match current ROM.");
+#ifndef __LIBRETRO__
         gzclose(f);
+#endif
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
     curr += 32;
@@ -261,147 +301,186 @@ static int savestates_load_m64p(char *filepath)
     if (savestateData == NULL)
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Insufficient memory to load state.");
+#ifndef __LIBRETRO__
         gzclose(f);
+#endif
+#ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#endif
         return 0;
     }
-    if (gzread(f, savestateData, savestateSize) != savestateSize ||
-        (gzread(f, queue, sizeof(queue)) % 4) != 0)
+    if (version == 0x00010000) /* original savestate version */
     {
-        main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Could not read Mupen64Plus savestate data from %s", filepath);
-        free(savestateData);
-        gzclose(f);
-        SDL_UnlockMutex(savestates_lock);
-        return 0;
+#ifndef __LIBRETRO__
+        if (gzread(f, savestateData, savestateSize) != savestateSize ||
+            (gzread(f, queue, sizeof(queue)) % 4) != 0)
+        {
+            main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Could not read Mupen64Plus savestate 1.0 data from %s", filepath);
+            free(savestateData);
+            gzclose(f);
+#ifdef USE_SDL
+            SDL_UnlockMutex(savestates_lock);
+#endif
+            return 0;
+        }
+#else
+        memcpy(savestateData, data + 44, savestateSize);
+        memcpy(queue, data + 44 + savestateSize, sizeof(queue));
+#endif
+    }
+    else // version >= 0x00010100  saves entire eventqueue plus 4-byte using_tlb flage
+    {
+#ifndef __LIBRETRO__
+        if (gzread(f, savestateData, savestateSize) != savestateSize ||
+            gzread(f, queue, sizeof(queue)) != sizeof(queue) ||
+            gzread(f, additionalData, sizeof(additionalData)) != sizeof(additionalData))
+        {
+            main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Could not read Mupen64Plus savestate 1.1 data from %s", filepath);
+            free(savestateData);
+            gzclose(f);
+#ifdef USE_SDL
+            SDL_UnlockMutex(savestates_lock);
+#endif
+            return 0;
+        }
+#else
+        memcpy(savestateData, data + 44, savestateSize);
+        memcpy(queue, data + 44 + savestateSize, sizeof(queue));
+        memcpy(additionalData, data + 44 + savestateSize + sizeof(queue), sizeof(additionalData));
+#endif
     }
 
+#ifndef __LIBRETRO__
     gzclose(f);
+#endif
+#ifdef USE_SDL
     SDL_UnlockMutex(savestates_lock);
+#endif
 
     // Parse savestate
-    g_ri.rdram.regs[RDRAM_CONFIG_REG]       = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DEVICE_ID_REG]    = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DELAY_REG]        = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_MODE_REG]         = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_REF_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_REF_ROW_REG]      = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_RAS_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_MIN_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_ADDR_SELECT_REG]  = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DEVICE_MANUF_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_CONFIG_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DEVICE_ID_REG]    = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DELAY_REG]        = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_MODE_REG]         = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_REF_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_REF_ROW_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_RAS_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_MIN_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_ADDR_SELECT_REG]  = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DEVICE_MANUF_REG] = GETDATA(curr, uint32_t);
 
     curr += 4; /* Padding from old implementation */
-    g_r4300.mi.regs[MI_INIT_MODE_REG] = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INIT_MODE_REG] = GETDATA(curr, uint32_t);
     curr += 4; // Duplicate MI init mode flags from old implementation
-    g_r4300.mi.regs[MI_VERSION_REG]   = GETDATA(curr, uint32_t);
-    g_r4300.mi.regs[MI_INTR_REG]      = GETDATA(curr, uint32_t);
-    g_r4300.mi.regs[MI_INTR_MASK_REG] = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_VERSION_REG]   = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INTR_REG]      = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INTR_MASK_REG] = GETDATA(curr, uint32_t);
     curr += 4; /* Padding from old implementation */
     curr += 8; // Duplicated MI intr flags and padding from old implementation
 
-    g_pi.regs[PI_DRAM_ADDR_REG]    = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_CART_ADDR_REG]    = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_RD_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_WR_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_STATUS_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_LAT_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_PWD_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_PGS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_RLS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_LAT_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_PWD_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_PGS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_RLS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_DRAM_ADDR_REG]    = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_CART_ADDR_REG]    = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_RD_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_WR_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_STATUS_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_LAT_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_PWD_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_PGS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_RLS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_LAT_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_PWD_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_PGS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_RLS_REG] = GETDATA(curr, uint32_t);
 
-    g_sp.regs[SP_MEM_ADDR_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_RD_LEN_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_WR_LEN_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_MEM_ADDR_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_RD_LEN_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_WR_LEN_REG]    = GETDATA(curr, uint32_t);
     curr += 4; /* Padding from old implementation */
-    g_sp.regs[SP_STATUS_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_STATUS_REG]    = GETDATA(curr, uint32_t);
     curr += 16; // Duplicated SP flags and padding from old implementation
-    g_sp.regs[SP_DMA_FULL_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_DMA_BUSY_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_SEMAPHORE_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DMA_FULL_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DMA_BUSY_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_SEMAPHORE_REG] = GETDATA(curr, uint32_t);
 
-    g_sp.regs2[SP_PC_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs2[SP_IBIST_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs2[SP_PC_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs2[SP_IBIST_REG] = GETDATA(curr, uint32_t);
 
-    g_si.regs[SI_DRAM_ADDR_REG]      = GETDATA(curr, uint32_t);
-    g_si.regs[SI_PIF_ADDR_RD64B_REG] = GETDATA(curr, uint32_t);
-    g_si.regs[SI_PIF_ADDR_WR64B_REG] = GETDATA(curr, uint32_t);
-    g_si.regs[SI_STATUS_REG]         = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_DRAM_ADDR_REG]      = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_PIF_ADDR_RD64B_REG] = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_PIF_ADDR_WR64B_REG] = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_STATUS_REG]         = GETDATA(curr, uint32_t);
 
-    g_vi.regs[VI_STATUS_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_ORIGIN_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_WIDTH_REG]   = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_INTR_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_CURRENT_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_BURST_REG]   = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_SYNC_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_H_SYNC_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_LEAP_REG]    = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_H_START_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_START_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_BURST_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_X_SCALE_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_Y_SCALE_REG] = GETDATA(curr, uint32_t);
-    g_vi.delay = GETDATA(curr, unsigned int);
+    g_dev.vi.regs[VI_STATUS_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_ORIGIN_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_WIDTH_REG]   = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_INTR_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_CURRENT_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_BURST_REG]   = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_SYNC_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_H_SYNC_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_LEAP_REG]    = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_H_START_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_START_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_BURST_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_X_SCALE_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_Y_SCALE_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.delay = GETDATA(curr, unsigned int);
     gfx.viStatusChanged();
     gfx.viWidthChanged();
 
-    g_ri.regs[RI_MODE_REG]         = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_CONFIG_REG]       = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_CURRENT_LOAD_REG] = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_SELECT_REG]       = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_REFRESH_REG]      = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_LATENCY_REG]      = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_ERROR_REG]        = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_WERROR_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_MODE_REG]         = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_CONFIG_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_CURRENT_LOAD_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_SELECT_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_REFRESH_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_LATENCY_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_ERROR_REG]        = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_WERROR_REG]       = GETDATA(curr, uint32_t);
 
-    g_ai.regs[AI_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_CONTROL_REG]   = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_STATUS_REG]    = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_DACRATE_REG]   = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_BITRATE_REG]   = GETDATA(curr, uint32_t);
-    g_ai.fifo[1].duration  = GETDATA(curr, unsigned int);
-    g_ai.fifo[1].length = GETDATA(curr, uint32_t);
-    g_ai.fifo[0].duration  = GETDATA(curr, unsigned int);
-    g_ai.fifo[0].length = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_CONTROL_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_STATUS_REG]    = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_DACRATE_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_BITRATE_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.fifo[1].duration  = GETDATA(curr, unsigned int);
+    g_dev.ai.fifo[1].length = GETDATA(curr, uint32_t);
+    g_dev.ai.fifo[0].duration  = GETDATA(curr, unsigned int);
+    g_dev.ai.fifo[0].length = GETDATA(curr, uint32_t);
     /* best effort initialization of fifo addresses...
      * You might get a small sound "pop" because address might be wrong.
      * Proper initialization requires changes to savestate format
      */
-    g_ai.fifo[0].address = g_ai.regs[AI_DRAM_ADDR_REG];
-    g_ai.fifo[1].address = g_ai.regs[AI_DRAM_ADDR_REG];
-    g_ai.samples_format_changed = 1;
+    g_dev.ai.fifo[0].address = g_dev.ai.regs[AI_DRAM_ADDR_REG];
+    g_dev.ai.fifo[1].address = g_dev.ai.regs[AI_DRAM_ADDR_REG];
+    g_dev.ai.samples_format_changed = 1;
 
-    g_dp.dpc_regs[DPC_START_REG]    = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_END_REG]      = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_CURRENT_REG]  = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_START_REG]    = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_END_REG]      = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_CURRENT_REG]  = GETDATA(curr, uint32_t);
     curr += 4; // Padding from old implementation
-    g_dp.dpc_regs[DPC_STATUS_REG]   = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_STATUS_REG]   = GETDATA(curr, uint32_t);
     curr += 12; // Duplicated DPC flags and padding from old implementation
-    g_dp.dpc_regs[DPC_CLOCK_REG]    = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_BUFBUSY_REG]  = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_PIPEBUSY_REG] = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_TMEM_REG]     = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_CLOCK_REG]    = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_BUFBUSY_REG]  = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_PIPEBUSY_REG] = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_TMEM_REG]     = GETDATA(curr, uint32_t);
 
-    g_dp.dps_regs[DPS_TBIST_REG]        = GETDATA(curr, uint32_t);
-    g_dp.dps_regs[DPS_TEST_MODE_REG]    = GETDATA(curr, uint32_t);
-    g_dp.dps_regs[DPS_BUFTEST_ADDR_REG] = GETDATA(curr, uint32_t);
-    g_dp.dps_regs[DPS_BUFTEST_DATA_REG] = GETDATA(curr, uint32_t);
+    g_dev.dp.dps_regs[DPS_TBIST_REG]        = GETDATA(curr, uint32_t);
+    g_dev.dp.dps_regs[DPS_TEST_MODE_REG]    = GETDATA(curr, uint32_t);
+    g_dev.dp.dps_regs[DPS_BUFTEST_ADDR_REG] = GETDATA(curr, uint32_t);
+    g_dev.dp.dps_regs[DPS_BUFTEST_DATA_REG] = GETDATA(curr, uint32_t);
 
-    COPYARRAY(g_rdram, curr, uint32_t, RDRAM_MAX_SIZE/4);
-    COPYARRAY(g_sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
-    COPYARRAY(g_si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
+    COPYARRAY(g_dev.ri.rdram.dram, curr, uint32_t, RDRAM_MAX_SIZE/4);
+    COPYARRAY(g_dev.sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
+    COPYARRAY(g_dev.si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
 
-    g_pi.use_flashram = GETDATA(curr, int);
-    g_pi.flashram.mode = GETDATA(curr, int);
-    g_pi.flashram.status = GETDATA(curr, unsigned long long);
-    g_pi.flashram.erase_offset = GETDATA(curr, unsigned int);
-    g_pi.flashram.write_pointer = GETDATA(curr, unsigned int);
+    g_dev.pi.use_flashram = GETDATA(curr, int);
+    g_dev.pi.flashram.mode = GETDATA(curr, int);
+    g_dev.pi.flashram.status = GETDATA(curr, unsigned long long);
+    g_dev.pi.flashram.erase_offset = GETDATA(curr, unsigned int);
+    g_dev.pi.flashram.write_pointer = GETDATA(curr, unsigned int);
 
     COPYARRAY(tlb_LUT_r, curr, unsigned int, 0x100000);
     COPYARRAY(tlb_LUT_w, curr, unsigned int, 0x100000);
@@ -450,18 +529,28 @@ static int savestates_load_m64p(char *filepath)
     savestates_load_set_pc(GETDATA(curr, uint32_t));
 
     *r4300_next_interrupt() = GETDATA(curr, unsigned int);
-    g_vi.next_vi = GETDATA(curr, unsigned int);
-    g_vi.field = GETDATA(curr, unsigned int);
+    g_dev.vi.next_vi = GETDATA(curr, unsigned int);
+    g_dev.vi.field = GETDATA(curr, unsigned int);
 
     // assert(savestateData+savestateSize == curr)
 
     to_little_endian_buffer(queue, 4, 256);
     load_eventqueue_infos(queue);
 
+#ifdef NEW_DYNAREC
+    if (version >= 0x00010100)
+    {
+        curr = additionalData;
+        using_tlb = GETDATA(curr, unsigned int);
+    }
+#endif
+
     *r4300_last_addr() = *r4300_pc();
 
     free(savestateData);
+#ifndef __LIBRETRO__
     main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "State loaded from: %s", namefrompath(filepath));
+#endif
     return 1;
 }
 
@@ -515,7 +604,7 @@ static int savestates_load_pj64(char *filepath, void *handle,
 
     // check ROM header
     COPYARRAY(RomHeader, curr, unsigned int, 0x40/4);
-    if(memcmp(RomHeader, g_rom, 0x40) != 0)
+    if(memcmp(RomHeader, g_dev.pi.cart_rom.rom, 0x40) != 0)
     {
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "State ROM header does not match current ROM.");
         free(savestateData);
@@ -546,8 +635,8 @@ static int savestates_load_pj64(char *filepath, void *handle,
     *r4300_next_interrupt() = (cp0_regs[CP0_COMPARE_REG] < vi_timer)
                   ? cp0_regs[CP0_COMPARE_REG]
                   : vi_timer;
-    g_vi.next_vi = vi_timer;
-    g_vi.field = 0;
+    g_dev.vi.next_vi = vi_timer;
+    g_dev.vi.field = 0;
     *((unsigned int*)&buffer[0]) = VI_INT;
     *((unsigned int*)&buffer[4]) = vi_timer;
     *((unsigned int*)&buffer[8]) = COMPARE_INT;
@@ -568,106 +657,106 @@ static int savestates_load_pj64(char *filepath, void *handle,
     *r4300_mult_lo() = GETDATA(curr, int64_t);
 
     // rdram register
-    g_ri.rdram.regs[RDRAM_CONFIG_REG]       = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DEVICE_ID_REG]    = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DELAY_REG]        = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_MODE_REG]         = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_REF_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_REF_ROW_REG]      = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_RAS_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_MIN_INTERVAL_REG] = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_ADDR_SELECT_REG]  = GETDATA(curr, uint32_t);
-    g_ri.rdram.regs[RDRAM_DEVICE_MANUF_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_CONFIG_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DEVICE_ID_REG]    = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DELAY_REG]        = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_MODE_REG]         = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_REF_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_REF_ROW_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_RAS_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_MIN_INTERVAL_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_ADDR_SELECT_REG]  = GETDATA(curr, uint32_t);
+    g_dev.ri.rdram.regs[RDRAM_DEVICE_MANUF_REG] = GETDATA(curr, uint32_t);
 
     // sp_register
-    g_sp.regs[SP_MEM_ADDR_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_RD_LEN_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_WR_LEN_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_STATUS_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_DMA_FULL_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_DMA_BUSY_REG]  = GETDATA(curr, uint32_t);
-    g_sp.regs[SP_SEMAPHORE_REG] = GETDATA(curr, uint32_t);
-    g_sp.regs2[SP_PC_REG]    = GETDATA(curr, uint32_t);
-    g_sp.regs2[SP_IBIST_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_MEM_ADDR_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_RD_LEN_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_WR_LEN_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_STATUS_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DMA_FULL_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_DMA_BUSY_REG]  = GETDATA(curr, uint32_t);
+    g_dev.sp.regs[SP_SEMAPHORE_REG] = GETDATA(curr, uint32_t);
+    g_dev.sp.regs2[SP_PC_REG]    = GETDATA(curr, uint32_t);
+    g_dev.sp.regs2[SP_IBIST_REG] = GETDATA(curr, uint32_t);
 
     // dpc_register
-    g_dp.dpc_regs[DPC_START_REG]    = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_END_REG]      = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_CURRENT_REG]  = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_STATUS_REG]   = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_CLOCK_REG]    = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_BUFBUSY_REG]  = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_PIPEBUSY_REG] = GETDATA(curr, uint32_t);
-    g_dp.dpc_regs[DPC_TMEM_REG]     = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_START_REG]    = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_END_REG]      = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_CURRENT_REG]  = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_STATUS_REG]   = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_CLOCK_REG]    = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_BUFBUSY_REG]  = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_PIPEBUSY_REG] = GETDATA(curr, uint32_t);
+    g_dev.dp.dpc_regs[DPC_TMEM_REG]     = GETDATA(curr, uint32_t);
     (void)GETDATA(curr, unsigned int); // Dummy read
     (void)GETDATA(curr, unsigned int); // Dummy read
 
     // mi_register
-    g_r4300.mi.regs[MI_INIT_MODE_REG] = GETDATA(curr, uint32_t);
-    g_r4300.mi.regs[MI_VERSION_REG]   = GETDATA(curr, uint32_t);
-    g_r4300.mi.regs[MI_INTR_REG]      = GETDATA(curr, uint32_t);
-    g_r4300.mi.regs[MI_INTR_MASK_REG] = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INIT_MODE_REG] = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_VERSION_REG]   = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INTR_REG]      = GETDATA(curr, uint32_t);
+    g_dev.r4300.mi.regs[MI_INTR_MASK_REG] = GETDATA(curr, uint32_t);
 
     // vi_register
-    g_vi.regs[VI_STATUS_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_ORIGIN_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_WIDTH_REG]   = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_INTR_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_CURRENT_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_BURST_REG]   = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_SYNC_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_H_SYNC_REG]  = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_LEAP_REG]    = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_H_START_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_START_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_V_BURST_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_X_SCALE_REG] = GETDATA(curr, uint32_t);
-    g_vi.regs[VI_Y_SCALE_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_STATUS_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_ORIGIN_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_WIDTH_REG]   = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_INTR_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_CURRENT_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_BURST_REG]   = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_SYNC_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_H_SYNC_REG]  = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_LEAP_REG]    = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_H_START_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_START_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_V_BURST_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_X_SCALE_REG] = GETDATA(curr, uint32_t);
+    g_dev.vi.regs[VI_Y_SCALE_REG] = GETDATA(curr, uint32_t);
     // TODO vi delay?
     gfx.viStatusChanged();
     gfx.viWidthChanged();
 
     // ai_register
-    g_ai.regs[AI_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_CONTROL_REG]   = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_STATUS_REG]    = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_DACRATE_REG]   = GETDATA(curr, uint32_t);
-    g_ai.regs[AI_BITRATE_REG]   = GETDATA(curr, uint32_t);
-    g_ai.samples_format_changed = 1;
+    g_dev.ai.regs[AI_DRAM_ADDR_REG] = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_CONTROL_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_STATUS_REG]    = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_DACRATE_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.regs[AI_BITRATE_REG]   = GETDATA(curr, uint32_t);
+    g_dev.ai.samples_format_changed = 1;
 
     // pi_register
-    g_pi.regs[PI_DRAM_ADDR_REG]    = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_CART_ADDR_REG]    = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_RD_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_WR_LEN_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_STATUS_REG]       = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_LAT_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_PWD_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_PGS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM1_RLS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_LAT_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_PWD_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_PGS_REG] = GETDATA(curr, uint32_t);
-    g_pi.regs[PI_BSD_DOM2_RLS_REG] = GETDATA(curr, uint32_t);
-    read_func(handle, g_pi.regs, PI_REGS_COUNT*sizeof(g_pi.regs[0]));
+    g_dev.pi.regs[PI_DRAM_ADDR_REG]    = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_CART_ADDR_REG]    = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_RD_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_WR_LEN_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_STATUS_REG]       = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_LAT_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_PWD_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_PGS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM1_RLS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_LAT_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_PWD_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_PGS_REG] = GETDATA(curr, uint32_t);
+    g_dev.pi.regs[PI_BSD_DOM2_RLS_REG] = GETDATA(curr, uint32_t);
+    read_func(handle, g_dev.pi.regs, PI_REGS_COUNT*sizeof(g_dev.pi.regs[0]));
 
     // ri_register
-    g_ri.regs[RI_MODE_REG]         = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_CONFIG_REG]       = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_CURRENT_LOAD_REG] = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_SELECT_REG]       = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_REFRESH_REG]      = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_LATENCY_REG]      = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_ERROR_REG]        = GETDATA(curr, uint32_t);
-    g_ri.regs[RI_WERROR_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_MODE_REG]         = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_CONFIG_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_CURRENT_LOAD_REG] = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_SELECT_REG]       = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_REFRESH_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_LATENCY_REG]      = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_ERROR_REG]        = GETDATA(curr, uint32_t);
+    g_dev.ri.regs[RI_WERROR_REG]       = GETDATA(curr, uint32_t);
 
     // si_register
-    g_si.regs[SI_DRAM_ADDR_REG]      = GETDATA(curr, uint32_t);
-    g_si.regs[SI_PIF_ADDR_RD64B_REG] = GETDATA(curr, uint32_t);
-    g_si.regs[SI_PIF_ADDR_WR64B_REG] = GETDATA(curr, uint32_t);
-    g_si.regs[SI_STATUS_REG]         = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_DRAM_ADDR_REG]      = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_PIF_ADDR_RD64B_REG] = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_PIF_ADDR_WR64B_REG] = GETDATA(curr, uint32_t);
+    g_dev.si.regs[SI_STATUS_REG]         = GETDATA(curr, uint32_t);
 
     // tlb
     memset(tlb_LUT_r, 0, 0x400000);
@@ -711,25 +800,25 @@ static int savestates_load_pj64(char *filepath, void *handle,
     }
 
     // pif ram
-    COPYARRAY(g_si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
+    COPYARRAY(g_dev.si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
 
     // RDRAM
-    memset(g_rdram, 0, RDRAM_MAX_SIZE);
-    COPYARRAY(g_rdram, curr, uint32_t, SaveRDRAMSize/4);
+    memset(g_dev.ri.rdram.dram, 0, RDRAM_MAX_SIZE);
+    COPYARRAY(g_dev.ri.rdram.dram, curr, uint32_t, SaveRDRAMSize/4);
 
     // DMEM + IMEM
-    COPYARRAY(g_sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
+    COPYARRAY(g_dev.sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
 
     // The following values should not matter because we don't have any AI interrupt
-    // g_ai.fifo[1].delay = 0; g_ai.fifo[1].length = 0;
-    // g_ai.fifo[0].delay = 0; g_ai.fifo[0].length = 0;
+    // g_dev.ai.fifo[1].delay = 0; g_dev.ai.fifo[1].length = 0;
+    // g_dev.ai.fifo[0].delay = 0; g_dev.ai.fifo[0].length = 0;
 
     // The following is not available in PJ64 savestate. Keep the values as is.
-    // g_dp.dps_regs[DPS_TBIST_REG] = 0; g_dp.dps_regs[DPS_TEST_MODE_REG] = 0;
-    // g_dp.dps_regs[DPS_BUFTEST_ADDR_REG] = 0; g_dp.dps_regs[DPS_BUFTEST_DATA_REG] = 0; *r4300_llbit() = 0;
+    // g_dev.dp.dps_regs[DPS_TBIST_REG] = 0; g_dev.dp.dps_regs[DPS_TEST_MODE_REG] = 0;
+    // g_dev.dp.dps_regs[DPS_BUFTEST_ADDR_REG] = 0; g_dev.dp.dps_regs[DPS_BUFTEST_DATA_REG] = 0; *r4300_llbit() = 0;
 
     // No flashram info in pj64 savestate.
-    init_flashram(&g_pi.flashram);
+    poweron_flashram(&g_dev.pi.flashram);
 
     savestates_load_set_pc(*r4300_last_addr());
 
@@ -914,12 +1003,15 @@ int savestates_load(void)
 
 static void savestates_save_m64p_work(struct work_struct *work)
 {
-    gzFile f;
     struct savestate_work *save = container_of(work, struct savestate_work, work);
 
+#ifdef USE_SDL
     SDL_LockMutex(savestates_lock);
+#endif
 
+#ifndef __LIBRETRO__
     // Write the state to a GZIP file
+    gzFile f;
     f = gzopen(save->filepath, "wb");
 
     if (f==NULL)
@@ -937,22 +1029,31 @@ static void savestates_save_m64p_work(struct work_struct *work)
         return;
     }
 
-    gzclose(f);
     main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Saved state to: %s", namefrompath(save->filepath));
+#else
+    memcpy(save->mempointer, save->data, save->size);
+#endif
     free(save->data);
+#ifndef __LIBRETRO__
     free(save->filepath);
+#endif
     free(save);
 
+#ifdef USE_SDL
     SDL_UnlockMutex(savestates_lock);
+#endif
 }
 
-static int savestates_save_m64p(char *filepath)
+#ifndef __LIBRETRO__
+int savestates_save_m64p(char *filepath)
+#else
+int savestates_save_m64p(void *data)
+#endif
 {
     unsigned char outbuf[4];
     int i;
 
     char queue[1024];
-    int queuelength;
 
     struct savestate_work *save;
     char *curr;
@@ -965,15 +1066,19 @@ static int savestates_save_m64p(char *filepath)
         return 0;
     }
 
+#ifndef __LIBRETRO__
     save->filepath = strdup(filepath);
+#else
+    save->mempointer = data;
+#endif
 
     if(autoinc_save_slot)
         savestates_inc_slot();
 
-    queuelength = save_eventqueue_infos(queue);
+    save_eventqueue_infos(queue);
 
     // Allocate memory for the save state data
-    save->size = 16788288 + queuelength;
+    save->size = 16788288 + sizeof(queue) + 4;
     save->data = curr = malloc(save->size);
     if (save->data == NULL)
     {
@@ -982,6 +1087,8 @@ static int savestates_save_m64p(char *filepath)
         main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Insufficient memory to save state.");
         return 0;
     }
+
+    memset(save->data, 0, save->size);
 
     // Write the save state data to memory
     PUTARRAY(savestate_magic, curr, unsigned char, 8);
@@ -994,155 +1101,155 @@ static int savestates_save_m64p(char *filepath)
 
     PUTARRAY(ROM_SETTINGS.MD5, curr, char, 32);
 
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_CONFIG_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DEVICE_ID_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DELAY_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_MODE_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_REF_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_REF_ROW_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_RAS_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_MIN_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_ADDR_SELECT_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DEVICE_MANUF_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_CONFIG_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DEVICE_ID_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DELAY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_MODE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_REF_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_REF_ROW_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_RAS_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_MIN_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_ADDR_SELECT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DEVICE_MANUF_REG]);
 
     PUTDATA(curr, uint32_t, 0); // Padding from old implementation
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INIT_MODE_REG]);
-    PUTDATA(curr, uint8_t,  g_r4300.mi.regs[MI_INIT_MODE_REG] & 0x7F);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INIT_MODE_REG] & 0x80) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INIT_MODE_REG] & 0x100) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INIT_MODE_REG] & 0x200) != 0);
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_VERSION_REG]);
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INTR_REG]);
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INTR_MASK_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INIT_MODE_REG]);
+    PUTDATA(curr, uint8_t,  g_dev.r4300.mi.regs[MI_INIT_MODE_REG] & 0x7F);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INIT_MODE_REG] & 0x80) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INIT_MODE_REG] & 0x100) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INIT_MODE_REG] & 0x200) != 0);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_VERSION_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INTR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INTR_MASK_REG]);
     PUTDATA(curr, uint32_t, 0); //Padding from old implementation
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x1) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x2) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x4) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x8) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x10) != 0);
-    PUTDATA(curr, uint8_t, (g_r4300.mi.regs[MI_INTR_MASK_REG] & 0x20) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x1) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x2) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x4) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x8) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x10) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.r4300.mi.regs[MI_INTR_MASK_REG] & 0x20) != 0);
     PUTDATA(curr, uint16_t, 0); // Padding from old implementation
 
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_CART_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_RD_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_WR_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_LAT_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_PWD_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_PGS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_RLS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_LAT_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_PWD_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_PGS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_RLS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_CART_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_RD_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_WR_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_LAT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_PWD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_PGS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_RLS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_LAT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_PWD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_PGS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_RLS_REG]);
 
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_MEM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_RD_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_WR_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_MEM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_RD_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_WR_LEN_REG]);
     PUTDATA(curr, uint32_t, 0); /* Padding from old implementation */
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_STATUS_REG]);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x1) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x2) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x4) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x8) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x10) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x20) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x40) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x80) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x100) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x200) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x400) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x800) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x1000) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x2000) != 0);
-    PUTDATA(curr, uint8_t, (g_sp.regs[SP_STATUS_REG] & 0x4000) != 0);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_STATUS_REG]);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x1) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x2) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x4) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x8) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x10) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x20) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x40) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x80) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x100) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x200) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x400) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x800) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x1000) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x2000) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.sp.regs[SP_STATUS_REG] & 0x4000) != 0);
     PUTDATA(curr, uint8_t, 0);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DMA_FULL_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DMA_BUSY_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_SEMAPHORE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DMA_FULL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DMA_BUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_SEMAPHORE_REG]);
 
-    PUTDATA(curr, uint32_t, g_sp.regs2[SP_PC_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs2[SP_IBIST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs2[SP_PC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs2[SP_IBIST_REG]);
 
-    PUTDATA(curr, uint32_t, g_si.regs[SI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_PIF_ADDR_RD64B_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_PIF_ADDR_WR64B_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_PIF_ADDR_RD64B_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_PIF_ADDR_WR64B_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_STATUS_REG]);
 
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_ORIGIN_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_WIDTH_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_INTR_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_CURRENT_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_BURST_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_SYNC_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_H_SYNC_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_LEAP_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_H_START_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_START_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_BURST_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_X_SCALE_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_Y_SCALE_REG]);
-    PUTDATA(curr, unsigned int, g_vi.delay);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_ORIGIN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_WIDTH_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_INTR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_CURRENT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_BURST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_SYNC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_H_SYNC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_LEAP_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_H_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_BURST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_X_SCALE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_Y_SCALE_REG]);
+    PUTDATA(curr, unsigned int, g_dev.vi.delay);
 
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_MODE_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_CONFIG_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_CURRENT_LOAD_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_SELECT_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_REFRESH_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_LATENCY_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_ERROR_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_WERROR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_MODE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_CONFIG_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_CURRENT_LOAD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_SELECT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_REFRESH_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_LATENCY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_ERROR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_WERROR_REG]);
 
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_CONTROL_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_DACRATE_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_BITRATE_REG]);
-    PUTDATA(curr, unsigned int, g_ai.fifo[1].duration);
-    PUTDATA(curr, uint32_t    , g_ai.fifo[1].length);
-    PUTDATA(curr, unsigned int, g_ai.fifo[0].duration);
-    PUTDATA(curr, uint32_t    , g_ai.fifo[0].length);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_CONTROL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_DACRATE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_BITRATE_REG]);
+    PUTDATA(curr, unsigned int, g_dev.ai.fifo[1].duration);
+    PUTDATA(curr, uint32_t    , g_dev.ai.fifo[1].length);
+    PUTDATA(curr, unsigned int, g_dev.ai.fifo[0].duration);
+    PUTDATA(curr, uint32_t    , g_dev.ai.fifo[0].length);
 
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_START_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_END_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_CURRENT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_END_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_CURRENT_REG]);
     PUTDATA(curr, uint32_t, 0); /* Padding from old implementation */
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_STATUS_REG]);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x1) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x2) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x4) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x8) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x10) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x20) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x40) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x80) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x100) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x200) != 0);
-    PUTDATA(curr, uint8_t, (g_dp.dpc_regs[DPC_STATUS_REG] & 0x400) != 0);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_STATUS_REG]);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x1) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x2) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x4) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x8) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x10) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x20) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x40) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x80) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x100) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x200) != 0);
+    PUTDATA(curr, uint8_t, (g_dev.dp.dpc_regs[DPC_STATUS_REG] & 0x400) != 0);
     PUTDATA(curr, uint8_t, 0);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_CLOCK_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_BUFBUSY_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_PIPEBUSY_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_TMEM_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_CLOCK_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_BUFBUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_PIPEBUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_TMEM_REG]);
 
-    PUTDATA(curr, uint32_t, g_dp.dps_regs[DPS_TBIST_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dps_regs[DPS_TEST_MODE_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dps_regs[DPS_BUFTEST_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dps_regs[DPS_BUFTEST_DATA_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dps_regs[DPS_TBIST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dps_regs[DPS_TEST_MODE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dps_regs[DPS_BUFTEST_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dps_regs[DPS_BUFTEST_DATA_REG]);
 
-    PUTARRAY(g_rdram, curr, uint32_t, RDRAM_MAX_SIZE/4);
-    PUTARRAY(g_sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
-    PUTARRAY(g_si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
+    PUTARRAY(g_dev.ri.rdram.dram, curr, uint32_t, RDRAM_MAX_SIZE/4);
+    PUTARRAY(g_dev.sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
+    PUTARRAY(g_dev.si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
 
-    PUTDATA(curr, int, g_pi.use_flashram);
-    PUTDATA(curr, int, g_pi.flashram.mode);
-    PUTDATA(curr, unsigned long long, g_pi.flashram.status);
-    PUTDATA(curr, unsigned int, g_pi.flashram.erase_offset);
-    PUTDATA(curr, unsigned int, g_pi.flashram.write_pointer);
+    PUTDATA(curr, int, g_dev.pi.use_flashram);
+    PUTDATA(curr, int, g_dev.pi.flashram.mode);
+    PUTDATA(curr, unsigned long long, g_dev.pi.flashram.status);
+    PUTDATA(curr, unsigned int, g_dev.pi.flashram.erase_offset);
+    PUTDATA(curr, unsigned int, g_dev.pi.flashram.write_pointer);
 
     PUTARRAY(tlb_LUT_r, curr, unsigned int, 0x100000);
     PUTARRAY(tlb_LUT_w, curr, unsigned int, 0x100000);
@@ -1190,13 +1297,17 @@ static int savestates_save_m64p(char *filepath)
     PUTDATA(curr, uint32_t, *r4300_pc());
 
     PUTDATA(curr, unsigned int, *r4300_next_interrupt());
-    PUTDATA(curr, unsigned int, g_vi.next_vi);
-    PUTDATA(curr, unsigned int, g_vi.field);
+    PUTDATA(curr, unsigned int, g_dev.vi.next_vi);
+    PUTDATA(curr, unsigned int, g_dev.vi.field);
 
-    to_little_endian_buffer(queue, 4, queuelength/4);
-    PUTARRAY(queue, curr, char, queuelength);
+    to_little_endian_buffer(queue, 4, sizeof(queue)/4);
+    PUTARRAY(queue, curr, char, sizeof(queue));
 
-    // assert(curr == save->data + save->size)
+#ifdef NEW_DYNAREC
+    PUTDATA(curr, unsigned int, using_tlb);
+#else
+    PUTDATA(curr, unsigned int, 0);
+#endif
 
     init_work(&save->work, savestates_save_m64p_work);
     queue_work(&save->work);
@@ -1227,7 +1338,7 @@ static int savestates_save_pj64(char *filepath, void *handle,
     // Write the save state data in memory
     PUTARRAY(pj64_magic, curr, unsigned char, 4);
     PUTDATA(curr, unsigned int, SaveRDRAMSize);
-    PUTARRAY(g_rom, curr, unsigned int, 0x40/4);
+    PUTARRAY(g_dev.pi.cart_rom.rom, curr, unsigned int, 0x40/4);
     PUTDATA(curr, uint32_t, get_event(VI_INT) - cp0_regs[CP0_COUNT_REG]); // vi_timer
     PUTDATA(curr, uint32_t, *r4300_pc());
     PUTARRAY(r4300_regs(), curr, int64_t, 32);
@@ -1244,94 +1355,94 @@ static int savestates_save_pj64(char *filepath, void *handle,
     PUTDATA(curr, int64_t, *r4300_mult_hi());
     PUTDATA(curr, int64_t, *r4300_mult_lo());
 
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_CONFIG_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DEVICE_ID_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DELAY_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_MODE_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_REF_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_REF_ROW_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_RAS_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_MIN_INTERVAL_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_ADDR_SELECT_REG]);
-    PUTDATA(curr, uint32_t, g_ri.rdram.regs[RDRAM_DEVICE_MANUF_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_CONFIG_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DEVICE_ID_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DELAY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_MODE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_REF_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_REF_ROW_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_RAS_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_MIN_INTERVAL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_ADDR_SELECT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.rdram.regs[RDRAM_DEVICE_MANUF_REG]);
 
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_MEM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_RD_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_WR_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DMA_FULL_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_DMA_BUSY_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs[SP_SEMAPHORE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_MEM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_RD_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_WR_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DMA_FULL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_DMA_BUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs[SP_SEMAPHORE_REG]);
 
-    PUTDATA(curr, uint32_t, g_sp.regs2[SP_PC_REG]);
-    PUTDATA(curr, uint32_t, g_sp.regs2[SP_IBIST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs2[SP_PC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.sp.regs2[SP_IBIST_REG]);
 
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_START_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_END_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_CURRENT_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_CLOCK_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_BUFBUSY_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_PIPEBUSY_REG]);
-    PUTDATA(curr, uint32_t, g_dp.dpc_regs[DPC_TMEM_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_END_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_CURRENT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_CLOCK_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_BUFBUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_PIPEBUSY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.dp.dpc_regs[DPC_TMEM_REG]);
     PUTDATA(curr, unsigned int, 0); // ?
     PUTDATA(curr, unsigned int, 0); // ?
 
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INIT_MODE_REG]); //TODO Secial handling in pj64
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_VERSION_REG]);
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INTR_REG]);
-    PUTDATA(curr, uint32_t, g_r4300.mi.regs[MI_INTR_MASK_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INIT_MODE_REG]); //TODO Secial handling in pj64
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_VERSION_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INTR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.r4300.mi.regs[MI_INTR_MASK_REG]);
 
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_ORIGIN_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_WIDTH_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_INTR_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_CURRENT_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_BURST_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_SYNC_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_H_SYNC_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_LEAP_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_H_START_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_START_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_V_BURST_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_X_SCALE_REG]);
-    PUTDATA(curr, uint32_t, g_vi.regs[VI_Y_SCALE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_ORIGIN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_WIDTH_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_INTR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_CURRENT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_BURST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_SYNC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_H_SYNC_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_LEAP_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_H_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_START_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_V_BURST_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_X_SCALE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.vi.regs[VI_Y_SCALE_REG]);
 
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_CONTROL_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_DACRATE_REG]);
-    PUTDATA(curr, uint32_t, g_ai.regs[AI_BITRATE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_CONTROL_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_DACRATE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ai.regs[AI_BITRATE_REG]);
 
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_CART_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_RD_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_WR_LEN_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_STATUS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_LAT_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_PWD_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_PGS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM1_RLS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_LAT_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_PWD_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_PGS_REG]);
-    PUTDATA(curr, uint32_t, g_pi.regs[PI_BSD_DOM2_RLS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_CART_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_RD_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_WR_LEN_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_LAT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_PWD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_PGS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM1_RLS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_LAT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_PWD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_PGS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.pi.regs[PI_BSD_DOM2_RLS_REG]);
 
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_MODE_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_CONFIG_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_CURRENT_LOAD_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_SELECT_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_REFRESH_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_LATENCY_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_ERROR_REG]);
-    PUTDATA(curr, uint32_t, g_ri.regs[RI_WERROR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_MODE_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_CONFIG_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_CURRENT_LOAD_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_SELECT_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_REFRESH_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_LATENCY_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_ERROR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.ri.regs[RI_WERROR_REG]);
 
-    PUTDATA(curr, uint32_t, g_si.regs[SI_DRAM_ADDR_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_PIF_ADDR_RD64B_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_PIF_ADDR_WR64B_REG]);
-    PUTDATA(curr, uint32_t, g_si.regs[SI_STATUS_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_DRAM_ADDR_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_PIF_ADDR_RD64B_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_PIF_ADDR_WR64B_REG]);
+    PUTDATA(curr, uint32_t, g_dev.si.regs[SI_STATUS_REG]);
 
     for (i=0; i < 32;i++)
     {
@@ -1354,10 +1465,10 @@ static int savestates_save_pj64(char *filepath, void *handle,
         PUTDATA(curr, unsigned int, MyEntryLo1);
     }
 
-    PUTARRAY(g_si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
+    PUTARRAY(g_dev.si.pif.ram, curr, uint8_t, PIF_RAM_SIZE);
 
-    PUTARRAY(g_rdram, curr, uint32_t, SaveRDRAMSize/4);
-    PUTARRAY(g_sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
+    PUTARRAY(g_dev.ri.rdram.dram, curr, uint32_t, SaveRDRAMSize/4);
+    PUTARRAY(g_dev.sp.mem, curr, uint32_t, SP_MEM_SIZE/4);
 
     // Write the save state data to the output
     if (!write_func(handle, savestateData, savestateSize))
@@ -1476,15 +1587,19 @@ int savestates_save(void)
 
 void savestates_init(void)
 {
+#ifdef USE_SDL
     savestates_lock = SDL_CreateMutex();
     if (!savestates_lock) {
         DebugMessage(M64MSG_ERROR, "Could not create savestates list lock");
         return;
     }
+#endif
 }
 
 void savestates_deinit(void)
 {
+#ifdef USE_SDL
     SDL_DestroyMutex(savestates_lock);
+#endif
     savestates_clear_job();
 }

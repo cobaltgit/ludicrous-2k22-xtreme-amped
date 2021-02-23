@@ -6,10 +6,17 @@
 
 #include "PluginAPI.h"
 
+#include "RSP.h"
+#include "GLideN64.h"
+extern uint32_t TurboBoost;
 extern "C" {
 
+int skip;
+int render;
 EXPORT BOOL CALL InitiateGFX (GFX_INFO Gfx_Info)
 {
+	skip = 0;
+	render = 1;
 	return api().InitiateGFX(Gfx_Info);
 }
 
@@ -20,7 +27,15 @@ EXPORT void CALL MoveScreen (int xpos, int ypos)
 
 EXPORT void CALL ProcessDList(void)
 {
-	api().ProcessDList();
+	if (skip < TurboBoost) {
+		*REG.MI_INTR |= MI_INTR_DP;
+		CheckInterrupts();
+		++skip;
+	} else {
+		api().ProcessDList();
+		skip = 0;
+		render = 1;
+	}
 }
 
 EXPORT void CALL ProcessRDPList(void)
@@ -40,7 +55,10 @@ EXPORT void CALL ShowCFB (void)
 
 EXPORT void CALL UpdateScreen (void)
 {
-	api().UpdateScreen();
+	if (render == 1) {
+		api().UpdateScreen();
+		render = 0;
+	}
 }
 
 EXPORT void CALL ViStatusChanged (void)

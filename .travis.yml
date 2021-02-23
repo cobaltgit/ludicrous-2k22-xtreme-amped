@@ -4,21 +4,20 @@ services:
   - docker
 
 before_install:
-  - docker pull ubuntu
-  - docker run --name ubuntu -it -d ubuntu /bin/bash
+  - docker pull fedora
+  - docker run --name fedora -it -d fedora /bin/bash
 env:
   - PLATFORM=linux
-  - PLATFORM=win
+  - PLATFORM=win64
+  - PLATFORM=win32
   - PLATFORM=android
   - PLATFORM=android-gles3
-  - PLATFORM=rpi2-cross
-  - PLATFORM=rpi3-cross
 
 script:
-  - docker exec ubuntu apt-get -qq update
-  - docker exec ubuntu apt-get -qq -y dist-upgrade
-  - docker exec ubuntu apt-get -qq -y install build-essential git libgl1-mesa-dev libgles2-mesa-dev libz-mingw-w64-dev g++-mingw-w64-x86-64 zlib1g-dev flex bison wget unzip zip python
-  - docker exec ubuntu /bin/bash -c "if [[ $PLATFORM == "android*" ]]; then wget -q https://dl.google.com/android/repository/android-ndk-r12b-linux-x86_64.zip; unzip -qq android-ndk-r12b-linux-x86_64.zip; ./android-ndk-r12b/build/tools/make_standalone_toolchain.py --arch arm --api 18 --install-dir /mychain; sed -i '/#include <GLES2\/gl2.h>/d' /mychain/sysroot/usr/include/GLES2/gl2ext.h; fi"
-  - docker exec ubuntu /bin/bash -c "if [[ $PLATFORM == "rpi*" ]]; then git clone --depth 1 https://github.com/raspberrypi/tools.git /rpitools; git clone --depth 1 https://github.com/raspberrypi/firmware.git /rpifirmware; mv /rpifirmware/opt/vc /opt; fi"
-  - docker exec ubuntu git clone --depth 25 -b $TRAVIS_BRANCH https://github.com/loganmc10/GLupeN64.git
-  - docker exec ubuntu /bin/bash -c "export PATH=$PATH:/mychain/bin:/rpitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin; cd GLupeN64; if [[ $TRAVIS_PULL_REQUEST == "false" ]]; then git checkout $TRAVIS_COMMIT; else git fetch origin pull/$TRAVIS_PULL_REQUEST/head:temp; git checkout temp; fi; platform=$PLATFORM make"
+  - docker exec fedora dnf -q -y update
+  - docker exec fedora dnf -q -y install make git gcc-c++ mesa-libGL-devel mingw64-gcc-c++ mingw64-zlib mingw32-gcc-c++ mingw32-zlib mingw64-libpng mingw32-libpng zlib-devel flex bison wget unzip zip python awscli nasm libpng-devel python3-PyYAML
+  - docker exec fedora /bin/bash -c "if [[ $PLATFORM == "android*" ]]; then wget -q https://dl.google.com/android/repository/android-ndk-r13b-linux-x86_64.zip; unzip -qq android-ndk-r13b-linux-x86_64.zip; ./android-ndk-r13b/build/tools/make_standalone_toolchain.py --arch arm --api 18 --install-dir /mychain; fi"
+  - docker exec fedora git clone --depth 25 -b $TRAVIS_BRANCH https://github.com/GLupeN64/GLupeN64.git
+  - docker exec fedora /bin/bash -c "export PATH=$PATH:/mychain/bin; cd GLupeN64; if [[ $TRAVIS_PULL_REQUEST == "false" ]]; then git checkout $TRAVIS_COMMIT; else git fetch origin pull/$TRAVIS_PULL_REQUEST/head:temp; git checkout temp; fi; platform=$PLATFORM make"
+  - docker exec fedora /bin/bash -c "cd GLupeN64; zip glupen64_$PLATFORM.zip glupen64_*"
+  - docker exec fedora /bin/bash -c "export AWS_ACCESS_KEY_ID=$ACCESS_KEY; export AWS_SECRET_ACCESS_KEY=$SECRET_KEY; cd GLupeN64; if [[ $TRAVIS_PULL_REQUEST == "false" && $TRAVIS_BRANCH == "master" ]]; then aws s3 cp glupen64_$PLATFORM.zip s3://loganbuildbot/cores/ --acl public-read; elif [[ $TRAVIS_PULL_REQUEST != "false" ]]; then aws s3 cp glupen64_$PLATFORM.zip s3://loganbuildbot/cores/$TRAVIS_PULL_REQUEST/ --acl public-read; fi"
