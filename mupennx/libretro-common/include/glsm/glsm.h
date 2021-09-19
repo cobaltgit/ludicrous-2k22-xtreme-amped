@@ -33,7 +33,6 @@ RETRO_BEGIN_DECLS
 
 #if defined(HAVE_OPENGLES2)
 typedef double GLclampd;
-typedef double GLdouble;
 typedef struct __GLsync* GLsync;
 typedef uint64_t GLuint64;
 typedef int64_t GLint64;
