@@ -567,7 +567,7 @@ static const char* depth_compare_shader_float =
 #else
 "layout(binding = 2, rgba32f) highp uniform coherent image2D uDepthImage;\n"
 #endif
-//"uniform int uEnableDepth;				\n"
+"uniform int uEnableDepth;				\n"
 "uniform lowp int uDepthMode;				\n"
 "uniform lowp int uDepthSource;				\n"
 "uniform lowp int uEnableDepthCompare;		\n"
@@ -575,7 +575,7 @@ static const char* depth_compare_shader_float =
 "uniform mediump float uDeltaZ;				\n"
 "bool depth_compare()									\n"
 "{														\n"
-//"  if (uEnableDepth == 0) return true;					\n"
+"  if (uEnableDepth == 0) return true;					\n"
 "  ivec2 coord = ivec2(gl_FragCoord.xy);				\n"
 "  highp vec4 depth = imageLoad(uDepthImage,coord);		\n"
 "  highp float bufZ = depth.r;							\n"

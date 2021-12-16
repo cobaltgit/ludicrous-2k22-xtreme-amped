@@ -18,6 +18,10 @@
 #include "GLideNHQ/Ext_TxFilter.h"
 #include "TextureFilterHandler.h"
 
+#ifdef HAVE_LIBNX
+#include <switch.h>
+#endif
+
 using namespace std;
 
 const GLuint g_noiseTexIndex = 2;
@@ -522,10 +526,12 @@ void TextureCache::destroy()
 
 void TextureCache::_checkCacheSize()
 {
-#ifdef VC
-	const size_t maxCacheSize = 15000;
+#if defined(VC) || defined(CLASSIC)
+	const size_t maxCacheSize = 1500;
+#elif defined(HAVE_LIBNX)
+	const size_t maxCacheSize = 4500;
 #else
-	const size_t maxCacheSize = 16384;
+	const size_t maxCacheSize = 8000;
 #endif
 	if (m_textures.size() >= maxCacheSize) {
 		CachedTexture& clsTex = m_textures.back();
@@ -566,10 +572,12 @@ CachedTexture * TextureCache::_addTexture(u32 _crc32)
 void TextureCache::removeFrameBufferTexture(CachedTexture * _pTexture)
 {
 	FBTextures::const_iterator iter = m_fbTextures.find(_pTexture->glName);
-	assert(iter != m_fbTextures.cend());
-	m_cachedBytes -= iter->second.textureBytes;
-	glDeleteTextures( 1, &iter->second.glName );
-	m_fbTextures.erase(iter);
+	if (iter != m_fbTextures.cend())
+	{
+		m_cachedBytes -= iter->second.textureBytes;
+		glDeleteTextures( 1, &iter->second.glName );
+		m_fbTextures.erase(iter);
+	}
 }
 
 CachedTexture * TextureCache::addFrameBufferTexture()
@@ -1408,11 +1416,19 @@ void TextureCache::update(u32 _t)
 			if (m_toggleDumpTex) {
 				displayLoadProgress(L"Texture dump - ON\n");
 				_clear();
+                #ifdef SWITCH
+                svcSleepThread(1000000000);
+                #else
 				std::this_thread::sleep_for(std::chrono::seconds(1));
+                #endif
 			}
 			else {
 				displayLoadProgress(L"Texture dump - OFF\n");
+                #ifdef SWITCH
+                svcSleepThread(1000000000);
+                #else
 				std::this_thread::sleep_for(std::chrono::seconds(1));
+                #endif
 			}
 		}
 	}

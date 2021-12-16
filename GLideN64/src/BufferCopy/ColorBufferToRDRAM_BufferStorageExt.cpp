@@ -37,7 +37,7 @@ void ColorBufferToRDRAM_BufferStorageExt::_initBuffers(void)
 	for (int index = 0; index < _numPBO; ++index) {
 		glBindBuffer(GL_PIXEL_PACK_BUFFER, m_PBO[index]);
 		m_fence[index] = 0;
-		glBufferStorage(GL_PIXEL_PACK_BUFFER, m_pTexture->textureBytes, nullptr, GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT);
+		glBufferStorage(GL_PIXEL_PACK_BUFFER, m_pTexture->textureBytes, nullptr, GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_CLIENT_STORAGE_BIT);
 		m_PBOData[index] = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, m_pTexture->textureBytes, GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT );
 	}
 

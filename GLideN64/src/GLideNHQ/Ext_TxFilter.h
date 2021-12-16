@@ -34,7 +34,9 @@
 #define CHDIR(a) SetCurrentDirectoryW(a)
 #else
 #include <iostream>
+#ifndef __LIBRETRO__
 #include <dlfcn.h>
+#endif
 #include <unistd.h>
 #define MAX_PATH 4095
 #define TXHMODULE void*

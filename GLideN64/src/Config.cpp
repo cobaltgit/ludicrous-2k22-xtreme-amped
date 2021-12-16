@@ -28,11 +28,17 @@ void Config::resetToDefaults()
 
 	texture.maxAnisotropy = 0;
 	texture.bilinearMode = BILINEAR_STANDARD;
-	texture.maxBytes = 500 * gc_uMegabyte;
 	texture.screenShotFormat = 0;
 
+#ifndef HAVE_LIBNX
+	texture.maxBytes = 500 * gc_uMegabyte;
 	generalEmulation.enableLOD = 1;
 	generalEmulation.enableNoise = 1;
+#else
+	texture.maxBytes = 1500 * gc_uMegabyte;
+	generalEmulation.enableLOD = 0;
+	generalEmulation.enableNoise = 0;
+#endif
 	generalEmulation.enableHWLighting = 0;
 	generalEmulation.enableCustomSettings = 1;
 	generalEmulation.enableShadersStorage = 1;
@@ -52,8 +58,13 @@ void Config::resetToDefaults()
 	generalEmulation.polygonOffsetUnits = 0.0f;
 #endif
 
+#if defined(VC) || defined(CLASSIC)
+	frameBufferEmulation.enable = 0;
+	frameBufferEmulation.copyDepthToRDRAM = 0;
+#else
 	frameBufferEmulation.enable = 1;
 	frameBufferEmulation.copyDepthToRDRAM = cdSoftwareRender;
+#endif
 	frameBufferEmulation.copyFromRDRAM = 0;
 	frameBufferEmulation.copyAuxToRDRAM = 0;
 	frameBufferEmulation.copyToRDRAM = ctAsync;

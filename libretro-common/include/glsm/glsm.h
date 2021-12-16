@@ -1,4 +1,4 @@
-/* Copyright (C) 2010-2017 The RetroArch team
+/* Copyright (C) 2010-2018 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this libretro SDK code part (glsm.h).
@@ -32,6 +32,7 @@
 RETRO_BEGIN_DECLS
 
 #ifdef HAVE_OPENGLES2
+//typedef GLfloat GLdouble;
 typedef GLclampf GLclampd;
 #endif
 

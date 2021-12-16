@@ -14,6 +14,10 @@ Probably not!  It is highly recommended you stick to the tried and true Mupen (N
 
 This is where Stability truly goes out the window!  It is, more or less, meant for mod masochists who want to push the limits of N64 Emulation to ridiculous, ludicrous proportions, kind of like "Goin' Plaid" in Spaceballs!  Depending on X Factor between 0-6. you can decrease stability of any given game, at cost of potential glitches, black screens, etc...gaining performance and speed!
 
+#### Why can't I use Turbo Boost Mode Activate with Frame Buffering!?
+
+Think of 3D Shutter Glasses.  And, every time you blink your eyes, it is exactly when the shutters are closed!  This is the layman's explanation for why this generally does not work!  But, if you offset things in such a way...wherein you are blinking your eyes whilst the shutters are opened!  Then, Turbo Boost Mode Activate will function with Frame Buffering toggled on!  To pull this off...And, each game performs differently, case by case scenario!  Once in game, IE: Jet Force Gemini OR Dr. Mario, turn Turbo Boost to X2; Frame Buffering ON, EXIT RetroArch completely!  Then, once you come back into RetroArch, reload the game with those exploited, variant Core Options in effect, they will both run fine!  
+
 #### What is Xtreme OverClock!?
 
 Calculations of Operations are sped up, in such a way, that you have "pseudo" OverClock, better performance/speed...perimeters between X1-XX; 0 being hard coded values.

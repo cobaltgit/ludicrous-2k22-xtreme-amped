@@ -23,7 +23,7 @@
 #define Turbo3D		14
 #define ZSortp		15
 #define F3DSETA		16
-#define F3DEX2MM	17
+#define F3DZEX2		17
 #define NONE		18
 
 // Fixed point conversion factors
@@ -579,7 +579,7 @@ static const char *aAText[] =
 extern u32 G_RDPHALF_1, G_RDPHALF_2, G_RDPHALF_CONT;
 extern u32 G_SPNOOP;
 extern u32 G_SETOTHERMODE_H, G_SETOTHERMODE_L;
-extern u32 G_DL, G_ENDDL, G_CULLDL, G_BRANCH_Z;
+extern u32 G_DL, G_ENDDL, G_CULLDL, G_BRANCH_Z, G_BRANCH_W;
 extern u32 G_LOAD_UCODE;
 extern u32 G_MOVEMEM, G_MOVEWORD;
 extern u32 G_MTX, G_POPMTX;
@@ -684,6 +684,7 @@ struct MicrocodeInfo
 	bool NoN;
 	bool textureGen;
 	bool texturePersp;
+	bool combineMatrices;
 };
 
 struct GBIInfo
@@ -700,6 +701,7 @@ struct GBIInfo
 	bool isNoN() const { return m_pCurrent != nullptr ? m_pCurrent->NoN : false; }
 	bool isTextureGen() const { return m_pCurrent != nullptr ? m_pCurrent->textureGen: true; }
 	bool isTexturePersp() const { return m_pCurrent != nullptr ? m_pCurrent->texturePersp: true; }
+	bool isCombineMatrices() const { return m_pCurrent != nullptr ? m_pCurrent->combineMatrices: false; }
 
 private:
 	void _flushCommands();

@@ -10,22 +10,22 @@
 #include "GBI.h"
 #include "RDP.h"
 #include "RSP.h"
-#include "F3D.h"
-#include "F3DEX.h"
-#include "F3DEX2.h"
-#include "L3D.h"
-#include "L3DEX.h"
-#include "L3DEX2.h"
-#include "S2DEX.h"
-#include "S2DEX2.h"
-#include "F3DDKR.h"
-#include "F3DBETA.h"
-#include "F3DPD.h"
-#include "F3DSETA.h"
-#include "F3DGOLDEN.h"
-#include "F3DEX2CBFD.h"
-#include "F3DEX2MM.h"
-#include "ZSort.h"
+#include "uCodes/F3D.h"
+#include "uCodes/F3DEX.h"
+#include "uCodes/F3DEX2.h"
+#include "uCodes/L3D.h"
+#include "uCodes/L3DEX.h"
+#include "uCodes/L3DEX2.h"
+#include "uCodes/S2DEX.h"
+#include "uCodes/S2DEX2.h"
+#include "uCodes/F3DDKR.h"
+#include "uCodes/F3DBETA.h"
+#include "uCodes/F3DPD.h"
+#include "uCodes/F3DSETA.h"
+#include "uCodes/F3DGOLDEN.h"
+#include "uCodes/F3DEX2CBFD.h"
+#include "uCodes/F3DZEX2.h"
+#include "uCodes/ZSort.h"
 #include "CRC.h"
 #include "Log.h"
 #include "OpenGL.h"
@@ -55,13 +55,14 @@ SpecialMicrocodeInfo specialMicrocodes[] =
 	{ F3DPD,		true,	0x1c4f7869, "Perfect Dark" },
 	{ Turbo3D,		false,	0x2bdcfc8a, "Turbo3D" },
 	{ F3DEX2CBFD,	true,	0x1b4ace88, "Conker's Bad Fur Day" },
-	{ F3DEX2MM,	true,	0xd39a0d4f, "Animal Forest" }
+	{ F3DZEX2,	    true,	0xd39a0d4f, "Animal Forest" },
+	{ S2DEX2,		false,	0x2c399dd, 	"Animal Forest" }
 };
 
 u32 G_RDPHALF_1, G_RDPHALF_2, G_RDPHALF_CONT;
 u32 G_SPNOOP;
 u32 G_SETOTHERMODE_H, G_SETOTHERMODE_L;
-u32 G_DL, G_ENDDL, G_CULLDL, G_BRANCH_Z;
+u32 G_DL, G_ENDDL, G_CULLDL, G_BRANCH_Z, G_BRANCH_W;
 u32 G_LOAD_UCODE;
 u32 G_MOVEMEM, G_MOVEWORD;
 u32 G_MTX, G_POPMTX;
@@ -187,7 +188,7 @@ void GBIInfo::_makeCurrent(MicrocodeInfo * _pCurrent)
 			case F3DEX2CBFD:F3DEX2CBFD_Init();	break;
 			case F3DSETA:	F3DSETA_Init();		break;
 			case F3DGOLDEN:	F3DGOLDEN_Init();	break;
-			case F3DEX2MM:	F3DEX2MM_Init();	break;
+			case F3DZEX2:	F3DZEX2_Init();	break;
 		}
 
 #ifndef GLESX
@@ -288,8 +289,11 @@ void GBIInfo::loadMicrocode(u32 uc_start, u32 uc_dstart, u16 uc_dsize)
 						type = F3DEX2;
 					if (strncmp(&uc_str[14], "F3DF", 4) == 0)
 						current.textureGen = false;
-					else if (strncmp(&uc_str[14], "F3DZ", 4) == 0)
-						type = F3DEX2MM;
+					else if (strncmp(&uc_str[14], "F3DZEX", 6) == 0) {
+						// Zelda games
+						type = F3DZEX2;
+						current.combineMatrices = false;
+					}
 					else if (strncmp(&uc_str[14], "F3DLX.Rej", 9) == 0)
 						current.NoN = true;
 					else if (strncmp(&uc_str[14], "F3DLP.Rej", 9) == 0) {

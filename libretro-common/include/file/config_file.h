@@ -126,10 +126,6 @@ bool config_get_string(config_file_t *conf, const char *entry, char **in);
 /* Extracts a string to a preallocated buffer. Avoid memory allocation. */
 bool config_get_array(config_file_t *conf, const char *entry, char *s, size_t len);
 
-/* Extracts a string to a preallocated buffer. Avoid memory allocation.
- * Recognized magic like ~/. Similar to config_get_array() otherwise. */
-bool config_get_path(config_file_t *conf, const char *entry, char *s, size_t len);
-
 /* Extracts a string to a preallocated buffer. Avoid memory allocation. */
 bool config_get_config_path(config_file_t *conf, char *s, size_t len);
 
@@ -148,7 +144,6 @@ void config_set_uint64(config_file_t *conf, const char *entry, uint64_t val);
 void config_set_char(config_file_t *conf, const char *entry, char val);
 void config_set_string(config_file_t *conf, const char *entry, const char *val);
 void config_unset(config_file_t *conf, const char *key);
-void config_set_path(config_file_t *conf, const char *entry, const char *val);
 void config_set_bool(config_file_t *conf, const char *entry, bool val);
 
 /* Write the current config to a file. */

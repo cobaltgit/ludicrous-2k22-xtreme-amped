@@ -1702,27 +1702,24 @@ static void load_alloc(struct regstat *current,int i)
   if(rt1[i]&&!((current->u>>rt1[i])&1)) {
     alloc_reg(current,i,rt1[i]);
     assert(get_reg(current->regmap,rt1[i])>=0);
-    if(opcode[i]==0x27||opcode[i]==0x37) // LWU/LD
+	if(opcode[i]==0x27||opcode[i]==0x37||opcode[i]==0x1A||opcode[i]==0x1B) // LWU/LD/LDL/LDR
     {
       current->is32&=~(1LL<<rt1[i]);
       alloc_reg64(current,i,rt1[i]);
-    }
-    else if(opcode[i]==0x1A||opcode[i]==0x1B) // LDL/LDR
-    {
-      current->is32&=~(1LL<<rt1[i]);
-      alloc_reg64(current,i,rt1[i]);
-      alloc_all(current,i);
-      alloc_reg64(current,i,FTEMP);
-      minimum_free_regs[i]=HOST_REGS;
     }
     else current->is32|=1LL<<rt1[i];
     dirty_reg(current,rt1[i]);
+	
+	if(opcode[i]==0x22||opcode[i]==0x26) // LWL/LWR
+      alloc_reg(current,i,FTEMP);
+    else if(opcode[i]==0x1A||opcode[i]==0x1B) // LDL/LDR
+      alloc_reg64(current,i,FTEMP);
+	  
     // If using TLB, need a register for pointer to the mapping table
     if(using_tlb) alloc_reg(current,i,TLREG);
-    // LWL/LWR need a temporary register for the old value
-    if(opcode[i]==0x22||opcode[i]==0x26)
-    {
-      alloc_reg(current,i,FTEMP);
+    
+	// LWU/LD/LDL/LDR need a temporary register
+    if(opcode[i]==0x22||opcode[i]==0x26||opcode[i]==0x1A||opcode[i]==0x1B) {
       alloc_reg_temp(current,i,-1);
       minimum_free_regs[i]=1;
     }
@@ -1739,12 +1736,6 @@ static void load_alloc(struct regstat *current,int i)
     if(using_tlb) alloc_reg(current,i,TLREG);
     alloc_reg_temp(current,i,-1);
     minimum_free_regs[i]=1;
-    if(opcode[i]==0x1A||opcode[i]==0x1B) // LDL/LDR
-    {
-      alloc_all(current,i);
-      alloc_reg64(current,i,FTEMP);
-      minimum_free_regs[i]=HOST_REGS;
-    }
   }
 }
 
@@ -4333,24 +4324,22 @@ static void wb_dirtys(signed char i_regmap[],uint64_t i_is32,uint64_t i_dirty)
   int hr;
   for(hr=0;hr<HOST_REGS;hr++) {
     if(hr!=EXCLUDE_REG) {
-      if(i_regmap[hr]>0) {
-        if(i_regmap[hr]!=CCREG) {
-          if((i_dirty>>hr)&1) {
-            if(i_regmap[hr]<64) {
+      if(((i_regmap[hr]&63)>0)&&((i_regmap[hr]&63)<CSREG)) {
+        if((i_dirty>>hr)&1) {
+          if(i_regmap[hr]<64) {
+            emit_storereg(i_regmap[hr],hr);
+            if(((i_is32>>i_regmap[hr])&1)) {
+              #ifdef DESTRUCTIVE_WRITEBACK
+              emit_sarimm(hr,31,hr);
+              emit_storereg(i_regmap[hr]|64,hr);
+              #else
+              emit_sarimm(hr,31,HOST_TEMPREG);
+              emit_storereg(i_regmap[hr]|64,HOST_TEMPREG);
+              #endif
+            }
+          }else{
+            if(!((i_is32>>(i_regmap[hr]&63))&1)) {
               emit_storereg(i_regmap[hr],hr);
-              if( ((i_is32>>i_regmap[hr])&1) ) {
-                #ifdef DESTRUCTIVE_WRITEBACK
-                emit_sarimm(hr,31,hr);
-                emit_storereg(i_regmap[hr]|64,hr);
-                #else
-                emit_sarimm(hr,31,HOST_TEMPREG);
-                emit_storereg(i_regmap[hr]|64,HOST_TEMPREG);
-                #endif
-              }
-            }else{
-              if( !((i_is32>>(i_regmap[hr]&63))&1) ) {
-                emit_storereg(i_regmap[hr],hr);
-              }
             }
           }
         }
@@ -4366,25 +4355,23 @@ static void wb_needed_dirtys(signed char i_regmap[],uint64_t i_is32,uint64_t i_d
   int t=(addr-start)>>2;
   for(hr=0;hr<HOST_REGS;hr++) {
     if(hr!=EXCLUDE_REG) {
-      if(i_regmap[hr]>0) {
-        if(i_regmap[hr]!=CCREG) {
-          if(i_regmap[hr]==regs[t].regmap_entry[hr] && ((regs[t].dirty>>hr)&1) && !(((i_is32&~regs[t].was32&~unneeded_reg_upper[t])>>(i_regmap[hr]&63))&1)) {
-            if((i_dirty>>hr)&1) {
-              if(i_regmap[hr]<64) {
+      if(((i_regmap[hr]&63)>0)&&((i_regmap[hr]&63)<CSREG)) {
+        if(i_regmap[hr]==regs[t].regmap_entry[hr] && ((regs[t].dirty>>hr)&1) && !(((i_is32&~regs[t].was32&~unneeded_reg_upper[t])>>(i_regmap[hr]&63))&1)) {
+          if((i_dirty>>hr)&1) {
+            if(i_regmap[hr]<64) {
+              emit_storereg(i_regmap[hr],hr);
+              if(((i_is32>>i_regmap[hr])&1)) {
+                #ifdef DESTRUCTIVE_WRITEBACK
+                emit_sarimm(hr,31,hr);
+                emit_storereg(i_regmap[hr]|64,hr);
+                #else
+                emit_sarimm(hr,31,HOST_TEMPREG);
+                emit_storereg(i_regmap[hr]|64,HOST_TEMPREG);
+                #endif
+              }
+            }else{
+              if(!((i_is32>>(i_regmap[hr]&63))&1)) {
                 emit_storereg(i_regmap[hr],hr);
-                if( ((i_is32>>i_regmap[hr])&1) ) {
-                  #ifdef DESTRUCTIVE_WRITEBACK
-                  emit_sarimm(hr,31,hr);
-                  emit_storereg(i_regmap[hr]|64,hr);
-                  #else
-                  emit_sarimm(hr,31,HOST_TEMPREG);
-                  emit_storereg(i_regmap[hr]|64,HOST_TEMPREG);
-                  #endif
-                }
-              }else{
-                if( !((i_is32>>(i_regmap[hr]&63))&1) ) {
-                  emit_storereg(i_regmap[hr],hr);
-                }
               }
             }
           }
@@ -4484,13 +4471,13 @@ static void store_regs_bt(signed char i_regmap[],uint64_t i_is32,uint64_t i_dirt
     int hr;
     for(hr=0;hr<HOST_REGS;hr++) {
       if(hr!=EXCLUDE_REG) {
-        if(i_regmap[hr]>0 && i_regmap[hr]!=CCREG) {
+        if(((i_regmap[hr]&63)>0)&&((i_regmap[hr]&63)<CSREG)) {
           if(i_regmap[hr]!=regs[t].regmap_entry[hr] || !((regs[t].dirty>>hr)&1) || (((i_is32&~regs[t].was32&~unneeded_reg_upper[t])>>(i_regmap[hr]&63))&1)) {
             if((i_dirty>>hr)&1) {
               if(i_regmap[hr]<64) {
                 if(!((unneeded_reg[t]>>i_regmap[hr])&1)) {
                   emit_storereg(i_regmap[hr],hr);
-                  if( ((i_is32>>i_regmap[hr])&1) && !((unneeded_reg_upper[t]>>i_regmap[hr])&1) ) {
+                  if(((i_is32>>i_regmap[hr])&1) && !((unneeded_reg_upper[t]>>i_regmap[hr])&1)) {
                     #ifdef DESTRUCTIVE_WRITEBACK
                     emit_sarimm(hr,31,hr);
                     emit_storereg(i_regmap[hr]|64,hr);
@@ -4501,7 +4488,7 @@ static void store_regs_bt(signed char i_regmap[],uint64_t i_is32,uint64_t i_dirt
                   }
                 }
               }else{
-                if( !((i_is32>>(i_regmap[hr]&63))&1) && !((unneeded_reg_upper[t]>>(i_regmap[hr]&63))&1) ) {
+                 if(!((i_is32>>(i_regmap[hr]&63))&1) && !((unneeded_reg_upper[t]>>(i_regmap[hr]&63))&1)) {
                   emit_storereg(i_regmap[hr],hr);
                 }
               }
@@ -5069,6 +5056,16 @@ static void ujump_assemble(int i,struct regstat *i_regs)
   #endif
   if(i==(ba[i]-start)>>2) assem_debug("idle loop");
   address_generation(i+1,i_regs,regs[i].regmap_entry);
+  
+  //Deal with ROM Hacks
+  if(rt1[i+1]==31)
+  {
+    assert(rs1[i+1]==31);
+    signed char rt=get_reg(branch_regs[i].regmap,31);
+    assert(get_reg(i_regs->regmap,31)==rt);
+    emit_movimm(start+i*4+8,rt); // PC into link register
+  }
+  
   #ifdef REG_PREFETCH
   int temp=get_reg(branch_regs[i].regmap,PTEMP);
   if(rt1[i]==31&&temp>=0) 
@@ -5086,10 +5083,9 @@ static void ujump_assemble(int i,struct regstat *i_regs)
   wb_invalidate(regs[i].regmap,branch_regs[i].regmap,regs[i].dirty,regs[i].is32,
                 bc_unneeded,bc_unneeded_upper);
   load_regs(regs[i].regmap,branch_regs[i].regmap,regs[i].was32,CCREG,CCREG);
-  if(rt1[i]==31) {
+  if(rt1[i]==31&&rt1[i+1]!=31) {
     int rt;
     unsigned int return_address;
-    assert(rt1[i+1]!=31);
     assert(rt2[i+1]!=31);
     rt=get_reg(branch_regs[i].regmap,31);
     assem_debug("branch(%d): eax=%d ecx=%d edx=%d ebx=%d ebp=%d esi=%d edi=%d",i,branch_regs[i].regmap[0],branch_regs[i].regmap[1],branch_regs[i].regmap[2],branch_regs[i].regmap[3],branch_regs[i].regmap[5],branch_regs[i].regmap[6],branch_regs[i].regmap[7]);
@@ -5134,18 +5130,20 @@ static void ujump_assemble(int i,struct regstat *i_regs)
   if(rt1[i]==31&&temp>=0) emit_prefetchreg(temp);
   #endif
   do_cc(i,branch_regs[i].regmap,&adj,ba[i],TAKEN,0);
-  if(adj) emit_addimm(cc,CLOCK_DIVIDER*(ccadj[i]+2-adj),cc);
-  load_regs_bt(branch_regs[i].regmap,branch_regs[i].is32,branch_regs[i].dirty,ba[i]);
-  if(internal_branch(branch_regs[i].is32,ba[i]))
-    assem_debug("branch: internal");
-  else
-    assem_debug("branch: external");
-  if(internal_branch(branch_regs[i].is32,ba[i])&&is_ds[(ba[i]-start)>>2]) {
-    ds_assemble_entry(i);
-  }
-  else {
-    add_to_linker((int)out,ba[i],internal_branch(branch_regs[i].is32,ba[i]));
-    emit_jmp(0);
+  if(i!=(ba[i]-start)>>2 || source[i+1]!=0) {
+    if(adj) emit_addimm(cc,CLOCK_DIVIDER*(ccadj[i]+2-adj),cc);
+    load_regs_bt(branch_regs[i].regmap,branch_regs[i].is32,branch_regs[i].dirty,ba[i]);
+    if(internal_branch(branch_regs[i].is32,ba[i]))
+      assem_debug("branch: internal");
+    else
+      assem_debug("branch: external");
+    if(internal_branch(branch_regs[i].is32,ba[i])&&is_ds[(ba[i]-start)>>2]) {
+      ds_assemble_entry(i);
+    }
+    else {
+      add_to_linker((intptr_t)out,ba[i],internal_branch(branch_regs[i].is32,ba[i]));
+      emit_jmp(0);
+    }
   }
 }
 
@@ -6211,6 +6209,7 @@ static void pagespan_assemble(int i,struct regstat *i_regs)
   int s2h=get_reg(i_regs->regmap,rs2[i]|64);
   int taken=0;
   int nottaken=0;
+  int nottaken1=0;
   int unconditional=0;
   if(rs1[i]==0)
   {
@@ -6308,10 +6307,12 @@ static void pagespan_assemble(int i,struct regstat *i_regs)
       if(s1h>=0) {
         if(s2h>=0) emit_cmp(s1h,s2h);
         else emit_test(s1h,s1h);
+		nottaken1=(int)out;
         emit_cmovne_reg(alt,addr);
       }
       if(s2l>=0) emit_cmp(s1l,s2l);
       else emit_test(s1l,s1l);
+	  nottaken=(int)out;
       emit_cmovne_reg(alt,addr);
     }
   }
@@ -6392,17 +6393,79 @@ static void pagespan_assemble(int i,struct regstat *i_regs)
   }
   if((opcode[i]&0x3f)==0x16) // BLEZL
   {
-    assert((opcode[i]&0x3f)!=0x16);
+    //assert((opcode[i]&0x3f)!=0x16);
+	if(s1h>=0) {
+      emit_test(s1h,s1h);
+      taken=(int)out;
+      emit_js(0);
+      nottaken1=(int)out;
+      emit_jne(0);
+    }
+    emit_cmpimm(s1l,1);
+    nottaken=(intptr_t)out;
+    if(s1h>=0) emit_jae(0);
+    else emit_jge(0);
+    if(taken) set_jump_target(taken,(int)out);
+   
   }
   if((opcode[i]&0x3f)==0x17) // BGTZL
   {
-    assert((opcode[i]&0x3f)!=0x17);
+    //assert((opcode[i]&0x3f)!=0x17);
+	if(s1h>=0) {
+      emit_test(s1h,s1h);
+      nottaken1=(int)out;
+      emit_js(0);
+      taken=(intptr_t)out;
+      emit_jne(0);
+    }
+    emit_cmpimm(s1l,1);
+    nottaken=(int)out;
+    if(s1h>=0) emit_jb(0);
+    else emit_jl(0);
+    if(taken) set_jump_target(taken,(int)out);
   }
-  assert(opcode[i]!=1); // BLTZ/BGEZ
+  
+  if((opcode[i]==1)&&(opcode2[i]==0)) // BLTZ
+  {
+    emit_mov2imm_compact(ba[i],alt,start+i*4+8,addr);
+    if(s1h>=0) emit_test(s1h,s1h);
+    else emit_test(s1l,s1l);
+    emit_cmovs_reg(alt,addr);
+  }
+  if((opcode[i]==1)&&(opcode2[i]==1)) // BGEZ
+  {
+    emit_mov2imm_compact(ba[i],addr,start+i*4+8,alt);
+    if(s1h>=0) emit_test(s1h,s1h);
+    else emit_test(s1l,s1l);
+    emit_cmovs_reg(alt,addr);
+  }
+  if((opcode[i]==1)&&(opcode2[i]==2)) // BLTZL
+  {
+    if(s1h>=0) emit_test(s1h,s1h);
+    else emit_test(s1l,s1l);
+    nottaken=(int)out;
+    emit_jns(0);
+  }
+  if((opcode[i]==1)&&(opcode2[i]==3)) // BGEZL
+  {
+    if(s1h>=0) emit_test(s1h,s1h);
+    else emit_test(s1l,s1l);
+    nottaken=(int)out;
+    emit_js(0);
+  }
+  //assert(opcode[i]!=1); // BLTZ/BGEZ
 
-  //FIXME: Check CSREG
   if(opcode[i]==0x11 && opcode2[i]==0x08 ) {
-    if((source[i]&0x30000)==0) // BC1F
+    if(!cop1_usable) {
+      signed char cs=get_reg(i_regs->regmap,CSREG);
+      assert(cs>=0);
+      emit_testimm(cs,CP0_STATUS_CU1);
+      int jaddr=(int)out;
+      emit_jeq(0);
+      add_stub(FP_STUB,jaddr,(int)out,i,cs,(int)i_regs,0,0);
+      cop1_usable=1;
+    }
+	if((source[i]&0x30000)==0) // BC1F
     {
       emit_mov2imm_compact(ba[i],addr,start+i*4+8,alt);
       emit_testimm(s1l,0x800000);
@@ -6451,7 +6514,8 @@ static void pagespan_assemble(int i,struct regstat *i_regs)
   else set_jump_target((int)branch_addr,(int)stub);
   if(likely[i]) {
     // Not-taken path
-    set_jump_target((int)nottaken,(int)out);
+    if(nottaken1) set_jump_target((int)nottaken1,(int)out);
+	set_jump_target((int)nottaken,(int)out);
     wb_dirtys(regs[i].regmap,regs[i].is32,regs[i].dirty);
     void *branch_addr=out;
     emit_jmp(0);
@@ -7558,7 +7622,7 @@ static void clean_registers(int istart,int iend,int wr)
             regs[i].wasdirty|=will_dirty_i&(1<<r);
           }
         }
-        else if((nr=get_reg(regs[i].regmap,regmap_pre[i][r]))>=0) {
+        else if(regmap_pre[i][r]>=0&&(nr=get_reg(regs[i].regmap,regmap_pre[i][r]))>=0) {
           // Register moved to a different register
           will_dirty_i&=~(1<<r);
           wont_dirty_i&=~(1<<r);
@@ -8427,7 +8491,8 @@ int new_recompile_block(int addr)
       }
       current.isconst=0;
     }
-    if(i>1)
+    memcpy(regmap_pre[i],current.regmap,sizeof(current.regmap));
+	if(i>1)
     {
       if((opcode[i-2]&0x2f)==0x05) // BNE/BNEL
       {
@@ -8481,7 +8546,7 @@ int new_recompile_block(int addr)
         current.is32=temp_is32;
       }
     }
-    memcpy(regmap_pre[i],current.regmap,sizeof(current.regmap));
+  
     regs[i].wasconst=current.isconst;
     regs[i].was32=current.is32;
     regs[i].wasdirty=current.dirty;
@@ -8627,7 +8692,8 @@ int new_recompile_block(int addr)
                 regs[i].regmap_entry[hr]=-1;
                 regs[i].regmap[hr]=-1;
                 //Don't clear regs in the delay slot as the branch might need them
-                //current.regmap[hr]=-1;
+                if(!ooo[i-1])
+                    current.regmap[hr]=-1;
               }else
                 regs[i].regmap_entry[hr]=r;
             }
@@ -8636,7 +8702,8 @@ int new_recompile_block(int addr)
                 regs[i].regmap_entry[hr]=-1;
                 regs[i].regmap[hr]=-1;
                 //Don't clear regs in the delay slot as the branch might need them
-                //current.regmap[hr]=-1;
+                if(!ooo[i-1])
+                    current.regmap[hr]=-1;
               }else
                 regs[i].regmap_entry[hr]=r;
             }
@@ -8662,7 +8729,7 @@ int new_recompile_block(int addr)
           if (rt1[i]==31) {
             alloc_reg(&current,i,31);
             dirty_reg(&current,31);
-            assert(rs1[i+1]!=31&&rs2[i+1]!=31);
+            assert(rs2[i+1]!=31);
             #ifdef REG_PREFETCH
             alloc_reg(&current,i,PTEMP);
             #endif
@@ -9722,7 +9789,9 @@ int new_recompile_block(int addr)
                   //DebugMessage(M64MSG_VERBOSE, "Hit %x -> %x, %x %d/%d",start+i*4,ba[i],start+j*4,hr,r);
                   int k;
                   if(regs[i].regmap[hr]==-1&&branch_regs[i].regmap[hr]==-1) {
-                    if(get_reg(regs[i+2].regmap,f_regmap[hr])>=0) break;
+                    if(get_reg(regs[i].regmap,f_regmap[hr])>=0) break;
+                    if(get_reg(branch_regs[i].regmap,f_regmap[hr])>=0) break;
+					if(get_reg(regs[i+2].regmap,f_regmap[hr])>=0) break;
                     if(r>63) {
                       if(get_reg(regs[i].regmap,r&63)<0) break;
                       if(get_reg(branch_regs[i].regmap,r&63)<0) break;
@@ -10727,8 +10796,13 @@ int new_recompile_block(int addr)
         wb_valid(regmap_pre[i],regs[i].regmap_entry,dirty_pre,regs[i].wasdirty,is32_pre,
               unneeded_reg[i],unneeded_reg_upper[i]);
       }
-      is32_pre=regs[i].is32;
-      dirty_pre=regs[i].dirty;
+      if((itype[i]==CJUMP||itype[i]==SJUMP||itype[i]==FJUMP)&&!likely[i]) {
+        is32_pre=branch_regs[i].is32;
+        dirty_pre=branch_regs[i].dirty;
+      }else{
+        is32_pre=regs[i].is32;
+        dirty_pre=regs[i].dirty;
+      }
       #endif
       // write back
       if(i<2||(itype[i-2]!=UJUMP&&itype[i-2]!=RJUMP&&(source[i-2]>>16)!=0x1000))

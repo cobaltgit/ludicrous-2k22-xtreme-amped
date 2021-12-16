@@ -279,11 +279,11 @@
     <ClCompile Include="..\..\src\DepthBuffer.cpp" />
     <ClCompile Include="..\..\src\DepthBufferRender\ClipPolygon.cpp" />
     <ClCompile Include="..\..\src\DepthBufferRender\DepthBufferRender.cpp" />
-    <ClCompile Include="..\..\src\F3DEX2CBFD.cpp" />
-    <ClCompile Include="..\..\src\F3DEX2MM.cpp" />
-    <ClCompile Include="..\..\src\F3DGOLDEN.cpp" />
-    <ClCompile Include="..\..\src\F3DSETA.cpp" />
-    <ClCompile Include="..\..\src\F3DBETA.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DEX2CBFD.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DZEX2.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DGOLDEN.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DSETA.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DBETA.cpp" />
     <ClCompile Include="..\..\src\FBOTextureFormats.cpp" />
     <ClCompile Include="..\..\src\FrameBuffer.cpp" />
     <ClCompile Include="..\..\src\FrameBufferInfo.cpp" />
@@ -336,18 +336,18 @@
     <ClCompile Include="..\..\src\TextDrawer.cpp" />
     <ClCompile Include="..\..\src\TextureFilterHandler.cpp" />
     <ClCompile Include="..\..\src\Textures.cpp" />
-    <ClCompile Include="..\..\src\Turbo3D.cpp" />
+    <ClCompile Include="..\..\src\uCodes\Turbo3D.cpp" />
     <ClCompile Include="..\..\src\VI.cpp" />
-    <ClCompile Include="..\..\src\F3D.cpp" />
-    <ClCompile Include="..\..\src\F3DDKR.cpp" />
-    <ClCompile Include="..\..\src\F3DEX.cpp" />
-    <ClCompile Include="..\..\src\F3DEX2.cpp" />
-    <ClCompile Include="..\..\src\F3DPD.cpp" />
-    <ClCompile Include="..\..\src\L3D.cpp" />
-    <ClCompile Include="..\..\src\L3DEX.cpp" />
-    <ClCompile Include="..\..\src\L3DEX2.cpp" />
-    <ClCompile Include="..\..\src\S2DEX.cpp" />
-    <ClCompile Include="..\..\src\S2DEX2.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3D.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DDKR.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DEX.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DEX2.cpp" />
+    <ClCompile Include="..\..\src\uCodes\F3DPD.cpp" />
+    <ClCompile Include="..\..\src\uCodes\L3D.cpp" />
+    <ClCompile Include="..\..\src\uCodes\L3DEX.cpp" />
+    <ClCompile Include="..\..\src\uCodes\L3DEX2.cpp" />
+    <ClCompile Include="..\..\src\uCodes\S2DEX.cpp" />
+    <ClCompile Include="..\..\src\uCodes\S2DEX2.cpp" />
     <ClCompile Include="..\..\src\windows\CommonAPIImpl_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus_uniformset|Win32'">true</ExcludedFromBuild>
@@ -378,7 +378,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus_uniformset|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_mupenplus|Win32'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="..\..\src\ZSort.cpp" />
+    <ClCompile Include="..\..\src\uCodes\ZSort.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\3DMath.h" />
@@ -398,10 +398,10 @@
     <ClInclude Include="..\..\src\DepthBuffer.h" />
     <ClInclude Include="..\..\src\DepthBufferRender\ClipPolygon.h" />
     <ClInclude Include="..\..\src\DepthBufferRender\DepthBufferRender.h" />
-    <ClInclude Include="..\..\src\F3DEX2CBFD.h" />
-    <ClInclude Include="..\..\src\F3DEX2MM.h" />
-    <ClInclude Include="..\..\src\F3DGOLDEN.h" />
-    <ClInclude Include="..\..\src\F3DSETA.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DEX2CBFD.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DZEX2.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DGOLDEN.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DSETA.h" />
     <ClInclude Include="..\..\src\FBOTextureFormats.h" />
     <ClInclude Include="..\..\src\FrameBuffer.h" />
     <ClInclude Include="..\..\src\FrameBufferInfo.h" />
@@ -442,21 +442,21 @@
     <ClInclude Include="..\..\src\TextDrawer.h" />
     <ClInclude Include="..\..\src\TextureFilterHandler.h" />
     <ClInclude Include="..\..\src\Textures.h" />
-    <ClInclude Include="..\..\src\Turbo3D.h" />
+    <ClInclude Include="..\..\src\uCodes\Turbo3D.h" />
     <ClInclude Include="..\..\src\Types.h" />
     <ClInclude Include="..\..\src\UniformCollection.h" />
     <ClInclude Include="..\..\src\VI.h" />
-    <ClInclude Include="..\..\src\F3D.h" />
-    <ClInclude Include="..\..\src\F3DDKR.h" />
-    <ClInclude Include="..\..\src\F3DEX.h" />
-    <ClInclude Include="..\..\src\F3DEX2.h" />
-    <ClInclude Include="..\..\src\F3DPD.h" />
-    <ClInclude Include="..\..\src\F3DBETA.h" />
-    <ClInclude Include="..\..\src\L3D.h" />
-    <ClInclude Include="..\..\src\L3DEX.h" />
-    <ClInclude Include="..\..\src\L3DEX2.h" />
-    <ClInclude Include="..\..\src\S2DEX.h" />
-    <ClInclude Include="..\..\src\S2DEX2.h" />
+    <ClInclude Include="..\..\src\uCodes\F3D.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DDKR.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DEX.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DEX2.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DPD.h" />
+    <ClInclude Include="..\..\src\uCodes\F3DBETA.h" />
+    <ClInclude Include="..\..\src\uCodes\L3D.h" />
+    <ClInclude Include="..\..\src\uCodes\L3DEX.h" />
+    <ClInclude Include="..\..\src\uCodes\L3DEX2.h" />
+    <ClInclude Include="..\..\src\uCodes\S2DEX.h" />
+    <ClInclude Include="..\..\src\uCodes\S2DEX2.h" />
     <ClInclude Include="..\..\src\windows\GLideN64_windows.h" />
     <ClInclude Include="..\..\src\wst.h" />
     <ClInclude Include="..\..\src\ZilmarGFX_1_3.h">
@@ -464,7 +464,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug_mupenplus_uniformset|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_mupenplus|Win32'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="..\..\src\ZSort.h" />
+    <ClInclude Include="..\..\src\uCodes\ZSort.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -843,21 +843,26 @@ TxQuantize::quantize(uint8* src, uint8* dest, int width, int height, uint16 srcf
 			numcore--;
 		}
 		if (blkrow > 0 && numcore > 1) {
-			std::thread *thrd[MAX_NUMCORE];
+#ifndef HAVE_LIBNX
+			std::thread *thrd[numcore];
+#endif
 			unsigned int i;
 			int blkheight = blkrow << 2;
 			unsigned int srcStride = (width * blkheight) << (2 - bpp_shift);
 			unsigned int destStride = srcStride << bpp_shift;
-			for (i = 0; i < numcore - 1; i++) {
+			for (i = 0; i < numcore; i++) {
+#ifndef HAVE_LIBNX
 				thrd[i] = new std::thread(std::bind(quantizer,
 														this,
 														(uint32*)src,
 														(uint32*)dest,
 														width,
 														blkheight));
+#endif
 				src  += srcStride;
 				dest += destStride;
 			}
+#ifndef HAVE_LIBNX
 			thrd[i] = new std::thread(std::bind(quantizer,
 													this,
 													(uint32*)src,
@@ -868,6 +873,7 @@ TxQuantize::quantize(uint8* src, uint8* dest, int width, int height, uint16 srcf
 				thrd[i]->join();
 				delete thrd[i];
 			}
+#endif
 		} else {
 			(*this.*quantizer)((uint32*)src, (uint32*)dest, width, height);
 		}
@@ -897,22 +903,27 @@ TxQuantize::quantize(uint8* src, uint8* dest, int width, int height, uint16 srcf
 			numcore--;
 		}
 		if (blkrow > 0 && numcore > 1) {
-			std::thread *thrd[MAX_NUMCORE];
+#ifndef HAVE_LIBNX
+			std::thread *thrd[numcore];
+#endif
 			unsigned int i;
 			int blkheight = blkrow << 2;
 			unsigned int srcStride = (width * blkheight) << 2;
 			unsigned int destStride = srcStride >> bpp_shift;
-			for (i = 0; i < numcore - 1; i++) {
+			for (i = 0; i < numcore; i++) {
+#ifndef HAVE_LIBNX
 				thrd[i] = new std::thread(std::bind(quantizer,
 														this,
 														(uint32*)src,
 														(uint32*)dest,
 														width,
 														blkheight));
+#endif
 				src  += srcStride;
 				dest += destStride;
 			}
-			thrd[i] = new std::thread(std::bind(quantizer,
+#ifndef HAVE_LIBNX
+            thrd[i] = new std::thread(std::bind(quantizer,
 													this,
 													(uint32*)src,
 													(uint32*)dest,
@@ -922,6 +933,7 @@ TxQuantize::quantize(uint8* src, uint8* dest, int width, int height, uint16 srcf
 				thrd[i]->join();
 				delete thrd[i];
 			}
+#endif
 		} else {
 			(*this.*quantizer)((uint32*)src, (uint32*)dest, width, height);
 		}

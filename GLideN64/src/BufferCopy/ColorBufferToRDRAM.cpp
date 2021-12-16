@@ -15,8 +15,6 @@
 #include "ColorBufferToRDRAM_BufferStorageExt.h"
 #elif defined (GLES3)
 #include "ColorBufferToRDRAM_GL.h"
-#elif defined(ANDROID) && defined (GLES2)
-#include "ColorBufferToRDRAM_GLES.h"
 #else
 #include "ColorBufferToRDRAMStub.h"
 #endif
@@ -241,7 +239,6 @@ void ColorBufferToRDRAM::_copy(u32 _startAddress, u32 _endAddress, bool _sync)
 
 	m_pCurFrameBuffer->m_copiedToRdram = true;
 	m_pCurFrameBuffer->copyRdram();
-	m_pCurFrameBuffer->m_cleared = false;
 
 	_cleanUp();
 
@@ -271,7 +268,8 @@ void ColorBufferToRDRAM::copyChunkToRDRAM(u32 _address)
 {
 	if (!_prepareCopy(_address))
 		return;
-	_copy(_address, _address + 0x1000, true);
+	const u32 addr = _address & ~0xfff;
+	_copy(addr, addr + 0x1000, true);
 }
 
 
@@ -290,9 +288,6 @@ ColorBufferToRDRAM & ColorBufferToRDRAM::get()
 	}
 #elif defined (GLES3)
 	static ColorBufferToRDRAM_GL cbCopy;
-	return cbCopy;
-#elif defined(ANDROID) && defined (GLES2)
-	static ColorBufferToRDRAM_GLES cbCopy;
 	return cbCopy;
 #else
 	static ColorBufferToRDRAMStub cbCopy;
@@ -322,5 +317,4 @@ void copyWhiteToRDRAM(FrameBuffer * _pBuffer)
 	_pBuffer->m_copiedToRdram = true;
 	_pBuffer->copyRdram();
 
-	_pBuffer->m_cleared = false;
 }

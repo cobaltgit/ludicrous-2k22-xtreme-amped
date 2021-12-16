@@ -167,7 +167,9 @@ u16 DepthBufferToRDRAM::_FloatToUInt16(f32 _z)
 {
 	static const u16 * const zLUT = depthBufferList().getZLUT();
 	u32 idx = 0x3FFFF;
-	if (_z < 1.0f) {
+	if (_z < 0.0f) {
+		idx = 0;
+	} else if (_z < 1.0f) {
 		_z *= 262144.0f;
 		idx = std::min(0x3FFFFU, u32(floorf(_z + 0.5f)));
 	}
@@ -234,7 +236,7 @@ bool DepthBufferToRDRAM::copyChunkToRDRAM(u32 _address)
 	if (!_prepareCopy(_address, true))
 		return false;
 
-	const u32 endAddress = _address + 0x1000;
-	return _copy(_address, endAddress);
+	const u32 addr = _address & ~0xfff;
+	return _copy(addr, addr + 0x1000);
 }
 #endif // GLES2

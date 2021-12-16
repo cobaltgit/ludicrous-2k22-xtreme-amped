@@ -14,16 +14,16 @@ set(GLideN64_SOURCES
   convert.cpp
   CRC32.cpp
   DepthBuffer.cpp
-  F3D.cpp
-  F3DDKR.cpp
-  F3DEX.cpp
-  F3DPD.cpp
-  F3DGOLDEN.cpp
-  F3DBETA.cpp
-  F3DSETA.cpp
-  F3DEX2.cpp
-  F3DEX2CBFD.cpp
-  F3DEX2MM.cpp
+  uCodes/F3D.cpp
+  uCodes/F3DDKR.cpp
+  uCodes/F3DEX.cpp
+  uCodes/F3DPD.cpp
+  uCodes/F3DGOLDEN.cpp
+  uCodes/F3DBETA.cpp
+  uCodes/F3DSETA.cpp
+  uCodes/F3DEX2.cpp
+  uCodes/F3DEX2CBFD.cpp
+  uCodes/F3DZEX2.cpp
   FBOTextureFormats.cpp
   FrameBuffer.cpp
   FrameBufferInfo.cpp
@@ -33,19 +33,19 @@ set(GLideN64_SOURCES
   glState.cpp
   gSP.cpp
   Keys.cpp
-  L3D.cpp
-  L3DEX2.cpp
-  L3DEX.cpp
+  uCodes/L3D.cpp
+  uCodes/L3DEX2.cpp
+  uCodes/L3DEX.cpp
   Log.cpp
   N64.cpp
   OpenGL.cpp
   Performance.cpp
   RDP.cpp
   RSP.cpp
-  S2DEX2.cpp
-  S2DEX.cpp
-  Turbo3D.cpp
-  ZSort.cpp
+  uCodes/S2DEX2.cpp
+  uCodes/S2DEX.cpp
+  uCodes/Turbo3D.cpp
+  uCodes/ZSort.cpp
   ShaderUtils.cpp
   SoftwareRender.cpp
   Textures.cpp

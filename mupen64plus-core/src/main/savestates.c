@@ -559,7 +559,7 @@ static int savestates_load_pj64(char *filepath, void *handle,
 {
     char buffer[1024];
     unsigned int vi_timer, SaveRDRAMSize;
-    int i;
+    size_t i;
     uint32_t FCR31;
 
     unsigned char header[8];
@@ -1029,6 +1029,7 @@ static void savestates_save_m64p_work(struct work_struct *work)
         return;
     }
 
+    gzclose(f);
     main_message(M64MSG_STATUS, OSD_BOTTOM_LEFT, "Saved state to: %s", namefrompath(save->filepath));
 #else
     memcpy(save->mempointer, save->data, save->size);

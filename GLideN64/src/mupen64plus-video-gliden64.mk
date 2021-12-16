@@ -28,18 +28,17 @@ MY_LOCAL_SRC_FILES :=                               \
     $(SRCDIR)/CommonPluginAPI.cpp                   \
     $(SRCDIR)/Config.cpp                            \
     $(SRCDIR)/convert.cpp                           \
-    $(SRCDIR)/CRC32.cpp                             \
     $(SRCDIR)/DepthBuffer.cpp                       \
-    $(SRCDIR)/F3D.cpp                               \
-    $(SRCDIR)/F3DDKR.cpp                            \
-    $(SRCDIR)/F3DEX2CBFD.cpp                        \
-    $(SRCDIR)/F3DEX2.cpp                            \
-    $(SRCDIR)/F3DEX2MM.cpp                          \
-    $(SRCDIR)/F3DEX.cpp                             \
-    $(SRCDIR)/F3DPD.cpp                             \
-    $(SRCDIR)/F3DGOLDEN.cpp                         \
-    $(SRCDIR)/F3DSETA.cpp                           \
-    $(SRCDIR)/F3DBETA.cpp                           \
+    $(SRCDIR)/uCodes/F3D.cpp                               \
+    $(SRCDIR)/uCodes/F3DDKR.cpp                            \
+    $(SRCDIR)/uCodes/F3DEX2CBFD.cpp                        \
+    $(SRCDIR)/uCodes/F3DEX2.cpp                            \
+    $(SRCDIR)/uCodes/F3DZEX2.cpp                          \
+    $(SRCDIR)/uCodes/F3DEX.cpp                             \
+    $(SRCDIR)/uCodes/F3DPD.cpp                             \
+    $(SRCDIR)/uCodes/F3DGOLDEN.cpp                         \
+    $(SRCDIR)/uCodes/F3DSETA.cpp                           \
+    $(SRCDIR)/uCodes/F3DBETA.cpp                           \
     $(SRCDIR)/FBOTextureFormats.cpp                 \
     $(SRCDIR)/FrameBuffer.cpp                       \
     $(SRCDIR)/FrameBufferInfo.cpp                   \
@@ -49,9 +48,9 @@ MY_LOCAL_SRC_FILES :=                               \
     $(SRCDIR)/glState.cpp                           \
     $(SRCDIR)/gSP.cpp                               \
     $(SRCDIR)/Keys.cpp                              \
-    $(SRCDIR)/L3D.cpp                               \
-    $(SRCDIR)/L3DEX2.cpp                            \
-    $(SRCDIR)/L3DEX.cpp                             \
+    $(SRCDIR)/uCodes/L3D.cpp                               \
+    $(SRCDIR)/uCodes/L3DEX2.cpp                            \
+    $(SRCDIR)/uCodes/L3DEX.cpp                             \
     $(SRCDIR)/Log_android.cpp                       \
     $(SRCDIR)/MupenPlusPluginAPI.cpp                \
     $(SRCDIR)/N64.cpp                               \
@@ -61,13 +60,13 @@ MY_LOCAL_SRC_FILES :=                               \
     $(SRCDIR)/SoftwareRender.cpp                    \
     $(SRCDIR)/RDP.cpp                               \
     $(SRCDIR)/RSP.cpp                               \
-    $(SRCDIR)/S2DEX2.cpp                            \
-    $(SRCDIR)/S2DEX.cpp                             \
+    $(SRCDIR)/uCodes/S2DEX2.cpp                            \
+    $(SRCDIR)/uCodes/S2DEX.cpp                             \
     $(SRCDIR)/TextureFilterHandler.cpp              \
     $(SRCDIR)/Textures.cpp                          \
-    $(SRCDIR)/Turbo3D.cpp                           \
+    $(SRCDIR)/uCodes/Turbo3D.cpp                           \
     $(SRCDIR)/VI.cpp                                \
-    $(SRCDIR)/ZSort.cpp                             \
+    $(SRCDIR)/uCodes/ZSort.cpp                             \
     $(SRCDIR)/ShaderUtils.cpp                       \
     $(SRCDIR)/common/CommonAPIImpl_common.cpp       \
     $(SRCDIR)/mupenplus/CommonAPIImpl_mupenplus.cpp \
@@ -100,8 +99,9 @@ MY_LOCAL_LDLIBS := -llog -latomic -lEGL
 
 ifeq ($(TARGET_ARCH_ABI), armeabi-v7a)
     # Use for ARM7a:
-    MY_LOCAL_SRC_FILES += $(SRCDIR)/3DMathNeon.cpp.neon
-    MY_LOCAL_SRC_FILES += $(SRCDIR)/gSPNeon.cpp.neon
+    MY_LOCAL_SRC_FILES += $(SRCDIR)/Neon/3DMathNeon.cpp.neon
+    MY_LOCAL_SRC_FILES += $(SRCDIR)/Neon/gSPNeon.cpp.neon
+	MY_LOCAL_SRC_FILES += $(SRCDIR)/Neon/CRC_OPT_NEON.cpp
     MY_LOCAL_CFLAGS += -D__NEON_OPT
     MY_LOCAL_CFLAGS += -D__VEC4_OPT -mfpu=neon -mfloat-abi=softfp -ftree-vectorize -mvectorize-with-neon-quad -ftree-vectorizer-verbose=2 -funsafe-math-optimizations -fno-finite-math-only
 
@@ -109,6 +109,7 @@ else ifeq ($(TARGET_ARCH_ABI), x86)
 #    MY_LOCAL_CFLAGS += -DX86_ASM
     MY_LOCAL_CFLAGS += -D__VEC4_OPT
     MY_LOCAL_SRC_FILES += $(SRCDIR)/3DMath.cpp
+	MY_LOCAL_SRC_FILES += $(SRCDIR)/CRC32.cpp 
 endif
 
 ###########

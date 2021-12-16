@@ -6,6 +6,10 @@
 #include "libretro_private.h"
 #include "GLideN64_libretro.h"
 
+#ifdef HAVE_LIBNX
+#include <switch.h>
+#endif
+
 #include <libco.h>
 
 #include <glsm/glsmsym.h>
@@ -76,9 +80,9 @@ static unsigned retro_filtering     = 0;
 static bool     first_context_reset = false;
 static bool     initializing        = true;
 
-uint32_t retro_screen_width;
-uint32_t retro_screen_height;
-float retro_screen_aspect;
+uint32_t retro_screen_width = 320;
+uint32_t retro_screen_height = 240;
+float retro_screen_aspect = 4.0 / 3.0;
 
 uint32_t bilinearMode = 0;
 uint32_t EnableHWLighting = 0;
@@ -98,6 +102,7 @@ uint32_t EnableFragmentDepthWrite = 0;
 uint32_t EnableShadersStorage = 0;
 uint32_t CropMode = 0;
 uint32_t EnableFBEmulation = 0;
+uint32_t ForceDisableExtraMem = 0;
 uint32_t CountPerOp = 0;
 uint32_t TurboBoost = 0;
 
@@ -129,9 +134,13 @@ static void setup_variables(void)
     struct retro_variable variables[] = {
         { "LudicrousN64-cpucore",
 #ifdef DYNAREC
-            "CPU Core; dynamic_recompiler|cached_interpreter|pure_interpreter" },
+#ifdef HAVE_LIBNX
+            "CPU Core; dynamic_recompiler|pure_interpreter|cached_recompiler" },
 #else
-            "CPU Core; cached_interpreter|pure_interpreter" },
+            "CPU Core; dynamic_recompiler|pure_interpreter|cached_interpreter" },
+#endif
+#else
+            "CPU Core; dynamic_recompiler|pure_interpreter" },
 #endif
         { "LudicrousN64-rspmode",
 #ifndef VC
@@ -140,31 +149,35 @@ static void setup_variables(void)
             "RSP Mode; HLE" },
 #endif
         { "LudicrousN64-43screensize",
-            "4:3 Resolution; 640x480|960x720|1280x960|1600x1200|1920x1440|320x240" },
+            "4:3 Resolution; 640x480|960x720|1280x960|320x240" },
         { "LudicrousN64-169screensize",
-            "16:9 Resolution; 640x360|960x540|1280x720|1920x1080|3840x2160" },
+            "16:9 Resolution; 640x360|960x540|1280x720" },
         { "LudicrousN64-aspect",
             "Aspect Ratio; 4:3|16:9|16:9 adjusted" },
         { "LudicrousN64-TurboBoost",
             "Xtreme TurboBoost; 0|X1|X2|X3|X4|X5|X6" },
         { "LudicrousN64-CountPerOp",
-            "Xtreme OverClock; 0|X1|X2|X3|X4|X5|X6|X7|X8|X9|XX" },			
+            "Xtreme OverClock; 0|X1|X2|X3|X4|X5|X6|X7|X8|X9|XX" },
         { "LudicrousN64-BilinearMode",
             "Bilinear filtering mode; standard|3point" },
 #ifndef HAVE_OPENGLES2
         { "LudicrousN64-MultiSampling",
             "MSAA level; 0|2|4|8|16" },
 #endif
+#if !defined(VC) && !defined(CLASSIC)
         { "LudicrousN64-EnableFBEmulation",
             "Framebuffer Emulation; False|True" },
+#endif				
         { "LudicrousN64-EnableCopyColorToRDRAM",
 #ifndef HAVE_OPENGLES
-            "Color buffer to RDRAM; Off|Async|Sync" },
+            "Color buffer to RDRAM; Off|ASync|Sync" },
 #else
             "Color buffer to RDRAM; Off|Async|Sync" },
 #endif
+#if !defined(VC) && !defined(CLASSIC)
         { "LudicrousN64-EnableCopyDepthToRDRAM",
             "Depth buffer to RDRAM; Off|Software|FromMem" },
+#endif
         { "LudicrousN64-EnableHWLighting",
             "Hardware per-pixel lighting; False|True" },
         { "LudicrousN64-CorrectTexrectCoords",
@@ -178,7 +191,7 @@ static void setup_variables(void)
             "GPU shader depth write; False|True" },
 #else
         { "LudicrousN64-EnableLegacyBlending",
-            "Less accurate blending mode; True|False" },
+            "Less accurate blending mode; False|True" },
         { "LudicrousN64-EnableFragmentDepthWrite",
             "GPU shader depth write; False|True" },
 #endif
@@ -199,7 +212,7 @@ static void setup_variables(void)
         {"LudicrousN64-astick-deadzone",
            "Analog Deadzone (percent); 15|20|25|30|0|5|10"},
         {"LudicrousN64-astick-sensitivity",
-           "Analog Sensitivity (percent); 100|95|90|85|80|105|110"},
+           "Analog Sensitivity (percent); 100|105|110|115|120|125|130|135|140|145|150|200|50|55|60|65|70|75|80|85|90|95"},
         {"LudicrousN64-r-cbutton",
            "Right C Button; C1|C2|C3|C4"},
         {"LudicrousN64-l-cbutton",
@@ -208,6 +221,8 @@ static void setup_variables(void)
            "Down C Button; C3|C4|C1|C2"},
         {"LudicrousN64-u-cbutton",
            "Up C Button; C4|C1|C2|C3"},
+        {"LudicrousN64-ForceDisableExtraMem",
+           "Disable Expansion Pak; False|True"},
         {"LudicrousN64-pak1",
            "Player 1 Pak; memory|rumble|none"},
         {"LudicrousN64-pak2",
@@ -333,9 +348,9 @@ void retro_get_system_info(struct retro_system_info *info)
     info->library_name = "LudicrousN64 Xtreme";
 #endif
 #ifndef GIT_VERSION
-#define GIT_VERSION " git"
+#define GIT_VERSION
 #endif
-    info->library_version = "2K21";
+    info->library_version = "2K22" GIT_VERSION;
     info->valid_extensions = "n64|v64|z64|bin|u1|ndd";
     info->need_fullpath = false;
     info->block_extract = false;
@@ -369,6 +384,9 @@ void copy_file(char * ininame, char * fileName)
 
 void retro_init(void)
 {
+#ifdef HAVE_LIBNX
+    detectIgnoreJitKernelPatch();
+#endif
     char* sys_pathname;
     wchar_t w_pathname[PATH_SIZE];
     environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &sys_pathname);
@@ -688,7 +706,7 @@ void update_variables()
             EnableShadersStorage = 0;
     }
 
-    var.key = "LudicrousN64-CropMode";
+    var.key = "mupen64plus-CropMode";
     var.value = NULL;
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
     {
@@ -749,53 +767,53 @@ void update_variables()
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
         astick_sensitivity = atoi(var.value);
 
-   var.key = "LudicrousN64-TurboBoost";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (!strcmp(var.value, "X6"))
-         TurboBoost = 6;
-      else if (!strcmp(var.value, "X5"))
-         TurboBoost = 5;
-      else if (!strcmp(var.value, "X4"))
-         TurboBoost = 4;
-      else if (!strcmp(var.value, "X3"))
-         TurboBoost = 3;
-      else if (!strcmp(var.value, "X2"))
-         TurboBoost = 2;         
-      else if (!strcmp(var.value, "X1"))
-         TurboBoost = 1;
-      else
-         TurboBoost = 0;
-   }
+    var.key = "LudicrousN64-TurboBoost";
+    var.value = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+    if (!strcmp(var.value, "X6"))
+       TurboBoost = 6;
+    else if (!strcmp(var.value, "X5"))
+       TurboBoost = 5;
+    else if (!strcmp(var.value, "X4"))
+       TurboBoost = 4;
+    else if (!strcmp(var.value, "X3"))
+       TurboBoost = 3;
+    else if (!strcmp(var.value, "X2"))
+       TurboBoost = 2;         
+    else if (!strcmp(var.value, "X1"))
+       TurboBoost = 1;
+    else
+       TurboBoost = 0;
+    }
 
-   var.key = "LudicrousN64-CountPerOp";
-   var.value = NULL;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (!strcmp(var.value, "XX"))
-         CountPerOp = 10;
-      else if (!strcmp(var.value, "X9"))
-         CountPerOp = 9;
-      else if (!strcmp(var.value, "X8"))
-         CountPerOp = 8;
-      else if (!strcmp(var.value, "X7"))
-         CountPerOp = 7;	 
-      else if (!strcmp(var.value, "X6"))
-         CountPerOp = 6;
-      else if (!strcmp(var.value, "X5"))
-         CountPerOp = 5;
-      else if (!strcmp(var.value, "X4"))
-         CountPerOp = 4;
-      else if (!strcmp(var.value, "X3"))
-         CountPerOp = 3;
-      else if (!strcmp(var.value, "X2"))
-         CountPerOp = 2;
-      else if (!strcmp(var.value, "X1"))
-         CountPerOp = 1; 
-      else
-         CountPerOp = 0;
-   }
+    var.key = "LudicrousN64-CountPerOp";
+    var.value = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+    if (!strcmp(var.value, "XX"))
+       CountPerOp = 10;
+    else if (!strcmp(var.value, "X9"))
+       CountPerOp = 9;
+    else if (!strcmp(var.value, "X8"))
+       CountPerOp = 8;
+    else if (!strcmp(var.value, "X7"))
+       CountPerOp = 7;	 
+    else if (!strcmp(var.value, "X6"))
+       CountPerOp = 6;
+    else if (!strcmp(var.value, "X5"))
+       CountPerOp = 5;
+    else if (!strcmp(var.value, "X4"))
+       CountPerOp = 4;
+    else if (!strcmp(var.value, "X3"))
+       CountPerOp = 3;
+    else if (!strcmp(var.value, "X2"))
+       CountPerOp = 2;
+    else if (!strcmp(var.value, "X1"))
+       CountPerOp = 1; 
+    else
+       CountPerOp = 0;
+    }
 
     var.key = "LudicrousN64-r-cbutton";
     var.value = NULL;
@@ -856,6 +874,14 @@ void update_variables()
         else if (!strcmp(var.value, "C4"))
             u_cbutton = RETRO_DEVICE_ID_JOYPAD_X;
     }
+
+    var.key = "LudicrousN64-ForceDisableExtraMem";
+    var.value = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        ForceDisableExtraMem = !strcmp(var.value, "False") ? 0 : 1;
+    }
+
     update_controllers();
 }
 
@@ -933,37 +959,68 @@ bool retro_load_game(const struct retro_game_info *game)
     return true;
 }
 
+#ifdef HAVE_LIBNX
+extern Jit dynarec_jit;
+extern void *jit_rw_buffer;
+extern void *jit_old_addr;
+#endif
 void retro_unload_game(void)
 {
+#if defined(HAVE_LIBNX) && defined(DYNAREC)
+    jitTransitionToWritable(&dynarec_jit);
+    if(jit_old_addr != 0)
+        dynarec_jit.rx_addr = jit_old_addr;
+    jit_old_addr = 0;
+    jitClose(&dynarec_jit);
+
+    if(jit_rw_buffer != 0)
+        free(jit_rw_buffer);
+
+    jit_rw_buffer = 0;
+#endif
+
     CoreDoCommand(M64CMD_ROM_CLOSE, 0, NULL);
     emu_initialized = false;
 }
 
 void retro_run (void)
 {
-    libretro_buffer_swapped = false;
+    libretro_swap_buffer = false;
     static bool updated = false;
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
         update_controllers();
     glsm_ctl(GLSM_CTL_STATE_BIND, NULL);
     co_switch(game_thread);
-    if (!libretro_buffer_swapped)
-        glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+    glsm_ctl(GLSM_CTL_STATE_UNBIND, NULL);
+    if (libretro_swap_buffer)
+        video_cb(RETRO_HW_FRAME_BUFFER_VALID, retro_screen_width, retro_screen_height, 0);
 }
 
 void retro_reset (void)
 {
-    CoreDoCommand(M64CMD_RESET, 1, (void*)0);
+    CoreDoCommand(M64CMD_RESET, 0, (void*)0);
 }
 
 void *retro_get_memory_data(unsigned type)
 {
-    return (type == RETRO_MEMORY_SAVE_RAM) ? &saved_memory : 0;
+    switch (type)
+    {
+        case RETRO_MEMORY_SYSTEM_RAM: return g_rdram;
+        case RETRO_MEMORY_SAVE_RAM:   return &saved_memory;
+    }
+    
+    return NULL;
 }
 
 size_t retro_get_memory_size(unsigned type)
 {
-    return (type == RETRO_MEMORY_SAVE_RAM) ? sizeof(saved_memory) : 0;
+    switch (type)
+    {
+        case RETRO_MEMORY_SYSTEM_RAM: return RDRAM_MAX_SIZE;
+        case RETRO_MEMORY_SAVE_RAM:   return sizeof(saved_memory);
+    }
+    
+    return 0;
 }
 
 size_t retro_serialize_size (void)

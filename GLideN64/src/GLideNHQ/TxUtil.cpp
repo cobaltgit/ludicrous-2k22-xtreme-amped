@@ -24,7 +24,7 @@
 #include "TxUtil.h"
 #include "TxDbg.h"
 #include <zlib.h>
-#include <malloc.h>
+#include <stdlib.h>
 #include <assert.h>
 
 #if defined (OS_MAC_OS_X)
@@ -491,6 +491,10 @@ int
 TxUtil::getNumberofProcessors()
 {
 	int numcore = 1;
+    #ifdef SWITCH
+    return 1;
+    #endif
+    
 #ifndef ANDROID
 	try {
 #if defined (OS_WINDOWS)
@@ -518,7 +522,7 @@ TxUtil::getNumberofProcessors()
 		DBG_INFO(80, wst("Error: number of processor detection failed!\n"));
 	}
 
-	if (numcore > MAX_NUMCORE) numcore = MAX_NUMCORE;
+
 #endif // ANDROID
 	DBG_INFO(80, wst("Number of processors : %d\n"), numcore);
 

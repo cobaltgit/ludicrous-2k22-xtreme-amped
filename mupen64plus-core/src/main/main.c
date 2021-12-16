@@ -776,6 +776,10 @@ static void apply_speed_limiter(void)
 
        SDL_Delay((int) sleepTime);
     }
+	
+	// Discard frames with excessive execution time
+    if (ThisFrameDelta > AdjustedLimit * 3)
+    	ThisFrameDelta = 0.f;
 
     timed_section_end(TIMED_SECTION_IDLE);
 }
@@ -876,6 +880,8 @@ static void open_eep_file(struct storage_file* storage)
 /*********************************************************************************************************
 * emulation thread - runs the core
 */
+uint32_t rdram_size;
+
 m64p_error main_run(void)
 {
     size_t i;
@@ -908,6 +914,12 @@ m64p_error main_run(void)
 #endif
     g_delay_si = ConfigGetParamBool(g_CoreConfig, "DelaySI");
     disable_extra_mem = ConfigGetParamInt(g_CoreConfig, "DisableExtraMem");
+
+    if (ForceDisableExtraMem == 1)
+        disable_extra_mem = 1;
+
+    rdram_size = (disable_extra_mem == 0) ? 0x800000 : 0x400000;
+
     count_per_op = ConfigGetParamInt(g_CoreConfig, "CountPerOp");
     if (count_per_op <= 0)
         count_per_op = ROM_PARAMS.countperop;
@@ -927,7 +939,7 @@ m64p_error main_run(void)
     open_sra_file(&sra);
 
     /* setup backends */
-    aout = (struct audio_out_backend){ &g_dev.ai, set_audio_format_via_audio_plugin, push_audio_samples_via_audio_plugin };
+    aout = (struct audio_out_backend){ &g_dev.ai, set_audio_format_via_libretro,, push_audio_samples_via_libretro };
     rtc = (struct clock_backend){ NULL, get_time_using_C_localtime };
     fla_storage = (struct storage_backend){ &fla, save_storage_file };
     sra_storage = (struct storage_backend){ &sra, save_storage_file };
@@ -947,7 +959,7 @@ m64p_error main_run(void)
                 g_rom, g_rom_size,
                 storage_file_ptr(&fla, 0), &fla_storage,
                 storage_file_ptr(&sra, 0), &sra_storage,
-                g_rdram, (disable_extra_mem == 0) ? 0x800000 : 0x400000,
+                g_rdram, rdram_size,
                 cins,
                 mpk_data, mpk_storages,
                 rumbles,

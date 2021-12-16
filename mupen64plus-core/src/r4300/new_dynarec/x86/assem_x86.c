@@ -1099,6 +1099,9 @@ static void emit_storereg(int r, int hr)
   if((r&63)==LOREG) addr=(int)&lo+((r&64)>>4);
   if(r==CCREG) addr=(int)&cycle_count;
   if(r==FSREG) addr=(int)&FCR31;
+  assert((r&63)!=CSREG);
+  assert((r&63)!=0);
+  assert((r&63)<=CCREG);
   assem_debug("mov %%%s,%x+%d",regname[hr],addr,r);
   output_byte(0x89);
   output_modrm(0,5,hr);
@@ -3579,12 +3582,6 @@ static void loadlr_assemble_x86(int i,struct regstat *i_regs)
     }
   }
   if (opcode[i]==0x1A||opcode[i]==0x1B) { // LDL/LDR
-    if(s>=0) 
-      if((i_regs->wasdirty>>s)&1)
-        emit_storereg(rs1[i],s);
-    if(get_reg(i_regs->regmap,rs1[i]|64)>=0) 
-      if((i_regs->wasdirty>>get_reg(i_regs->regmap,rs1[i]|64))&1)
-        emit_storereg(rs1[i]|64,get_reg(i_regs->regmap,rs1[i]|64));
     int temp2h=get_reg(i_regs->regmap,FTEMP|64);
     if(!c||memtarget) {
       //if(th>=0) emit_readword_indexed((int)g_dev.ri.rdram.dram-0x80000000,temp2,temp2h);
@@ -3597,7 +3594,11 @@ static void loadlr_assemble_x86(int i,struct regstat *i_regs)
     if(rt1[i]) {
       assert(th>=0);
       assert(tl>=0);
+	  assert(temp>=0);
+      assert(temp2>=0);
+      assert(temp2h>=0);
       emit_andimm(temp,56,temp);
+	  emit_pusha();
       emit_pushreg(temp);
       emit_pushreg(temp2h);
       emit_pushreg(temp2);
@@ -3606,19 +3607,11 @@ static void loadlr_assemble_x86(int i,struct regstat *i_regs)
       if(opcode[i]==0x1A) emit_call((int)ldl_merge);
       if(opcode[i]==0x1B) emit_call((int)ldr_merge);
       emit_addimm(ESP,20,ESP);
-      if(tl!=EDX) {
-        if(tl!=EAX) emit_mov(EAX,tl);
-        if(th!=EDX) emit_mov(EDX,th);
-      } else
-      if(th!=EAX) {
-        if(th!=EDX) emit_mov(EDX,th);
-        if(tl!=EAX) emit_mov(EAX,tl);
-      } else {
-        emit_xchg(EAX,EDX);
-      }
-      if(s>=0) emit_loadreg(rs1[i],s);
-      if(get_reg(i_regs->regmap,rs1[i]|64)>=0)
-        emit_loadreg(rs1[i]|64,get_reg(i_regs->regmap,rs1[i]|64));
+      emit_storereg(rt1[i],EAX);
+      emit_storereg(rt1[i]|64,EDX);
+      emit_popa();
+      emit_loadreg(rt1[i],tl);
+      emit_loadreg(rt1[i]|64,th);
     }
   }
 }

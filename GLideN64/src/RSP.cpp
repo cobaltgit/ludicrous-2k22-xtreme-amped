@@ -3,8 +3,8 @@
 #include "RSP.h"
 #include "RDP.h"
 #include "N64.h"
-#include "F3D.h"
-#include "Turbo3D.h"
+#include "uCodes/F3D.h"
+#include "uCodes/Turbo3D.h"
 #include "VI.h"
 #include "Combiner.h"
 #include "FrameBuffer.h"
@@ -336,10 +336,11 @@ void RSP_Init()
 	else if (strstr(RSP.romname, (const char *)"Pilot Wings64") != nullptr)
 		config.generalEmulation.hacks |= hack_pilotWings;
 	else if (strstr(RSP.romname, (const char *)"THE LEGEND OF ZELDA") != nullptr ||
-			 strstr(RSP.romname, (const char *)"ZELDA MASTER QUEST") != nullptr ||
-			 strstr(RSP.romname, (const char *)"DOUBUTSUNOMORI") != nullptr ||
-			 strstr(RSP.romname, (const char *)"ANIMAL FOREST") != nullptr)
-		config.generalEmulation.hacks |= hack_subscreen;
+			         strstr(RSP.romname, (const char *)"ZELDA MASTER QUEST") != nullptr)
+			config.generalEmulation.hacks |= hack_subscreen | hack_ZeldaMonochrome; 
+	else if (strstr(RSP.romname, (const char *)"DOUBUTSUNOMORI") != nullptr ||
+			         strstr(RSP.romname, (const char *)"ANIMAL FOREST") != nullptr)
+		     config.generalEmulation.hacks |= hack_subscreen;
 	else if (strstr(RSP.romname, (const char *)"LEGORacers") != nullptr)
 		config.generalEmulation.hacks |= hack_legoRacers;
 	else if (strstr(RSP.romname, (const char *)"Blast") != nullptr)
@@ -347,7 +348,7 @@ void RSP_Init()
 	else if (strstr(RSP.romname, (const char *)"SPACE INVADERS") != nullptr)
 		config.generalEmulation.hacks |= hack_ignoreVIHeightChange;
 	else if (strstr(RSP.romname, (const char *)"MASK") != nullptr) // Zelda MM
-		config.generalEmulation.hacks |= hack_ZeldaMM;
+		config.generalEmulation.hacks |= hack_ZeldaMonochrome | hack_ZeldaMM;
 	else if (strstr(RSP.romname, (const char *)"Perfect Dark") != nullptr ||
 			 strstr(RSP.romname, (const char *)"PERFECT DARK") != nullptr)
 		config.generalEmulation.hacks |= hack_rectDepthBufferCopyPD;
@@ -363,6 +364,13 @@ void RSP_Init()
 		config.generalEmulation.hacks |= hack_WinBack;
 	else if (strstr(RSP.romname, (const char *)"POKEMON SNAP") != nullptr)
 		config.generalEmulation.hacks |= hack_Snap;
+	else if (strstr(RSP.romname, (const char *)"MARIOKART64") != nullptr)
+		config.generalEmulation.hacks |= hack_MK64;
+	else if (strstr(RSP.romname, (const char *)"Resident Evil II") ||
+			 strstr(RSP.romname, (const char *)"BioHazard II"))
+		config.generalEmulation.hacks |= hack_RE2 | hack_ModifyVertexXyInShader | hack_LoadDepthTextures;
+	else if (strstr(RSP.romname, (const char *)"THPS") != nullptr)
+		config.generalEmulation.hacks |= hack_TonyHawk;
 
 	api().FindPluginPath(RSP.pluginpath);
 

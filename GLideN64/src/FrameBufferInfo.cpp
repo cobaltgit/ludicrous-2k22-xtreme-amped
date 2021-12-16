@@ -25,9 +25,6 @@ namespace FBInfo {
 
 	void FBInfo::Write(u32 addr, u32 size)
 	{
-		// TODO: remove debug print
-		//debugPrint("FBWrite addr=%08lx size=%u\n", addr, size);
-
 		const u32 address = RSP_SegmentToPhysical(addr);
 		if (m_pWriteBuffer == nullptr)
 			m_pWriteBuffer = frameBufferList().findBuffer(address);
@@ -36,18 +33,12 @@ namespace FBInfo {
 
 	void FBInfo::WriteList(FrameBufferModifyEntry *plist, u32 size)
 	{
-		debugPrint("FBWList size=%u\n", size);
-		for (u32 i = 0; i < size; ++i)
-			debugPrint(" plist[%u] addr=%08lx val=%08lx size=%u\n", i, plist[i].addr, plist[i].val, plist[i].size);
 		const u32 address = RSP_SegmentToPhysical(plist[0].addr);
 		m_pWriteBuffer = frameBufferList().findBuffer(address);
 	}
 
 	void FBInfo::Read(u32 addr)
 	{
-		// TODO: remove debug print
-		//debugPrint("FBRead addr=%08lx \n", addr);
-
 		const u32 address = RSP_SegmentToPhysical(addr);
 		FrameBuffer * pBuffer = frameBufferList().findBuffer(address);
 		if (pBuffer == nullptr || pBuffer == m_pWriteBuffer)
@@ -70,7 +61,6 @@ namespace FBInfo {
 
 	void FBInfo::GetInfo(void *pinfo)
 	{
-		//	debugPrint("FBGetInfo\n");
 		FrameBufferInfo * pFBInfo = (FrameBufferInfo*)pinfo;
 		memset(pFBInfo, 0, sizeof(FrameBufferInfo)* 6);
 

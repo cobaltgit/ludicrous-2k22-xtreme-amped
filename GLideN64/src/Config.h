@@ -194,6 +194,10 @@ struct Config
 #define hack_doNotResetTLUTmode		(1<<15) //Don't set TLUT mode to none after dlist end. Quake 64
 #define hack_LoadDepthTextures		(1<<16) //Load textures for depth buffer
 #define hack_Snap					(1<<17) //Frame buffer settings for camera detection in Pokemon Snap. Copy aux buffers at fullsync
+#define hack_MK64					(1<<18) //Hack for load MK64 HD textures properly.
+#define hack_RE2					(1<<19) //RE2 hacks.
+#define hack_ZeldaMonochrome		(1<<20) //Hack for Zeldas monochrome effects.
+#define hack_TonyHawk				(1<<21) //Hack for Tony Hawk blend mode.		
 
 extern Config config;
 
