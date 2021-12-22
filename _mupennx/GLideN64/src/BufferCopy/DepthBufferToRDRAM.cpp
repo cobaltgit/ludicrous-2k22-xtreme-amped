@@ -49,7 +49,7 @@ void DepthBufferToRDRAM::init()
 	if (!m_pbuf)
 		return;
 
-	m_pColorTexture = textureCache().addFrameBufferTexture(false);
+	m_pColorTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 	m_pColorTexture->format = G_IM_FMT_I;
 	m_pColorTexture->size = 2;
 	m_pColorTexture->clampS = 1;
@@ -63,7 +63,7 @@ void DepthBufferToRDRAM::init()
 	m_pColorTexture->height = DEPTH_TEX_HEIGHT;
 	m_pColorTexture->textureBytes = m_pColorTexture->width * m_pColorTexture->height;
 
-	m_pDepthTexture = textureCache().addFrameBufferTexture(false);
+	m_pDepthTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 	m_pDepthTexture->format = G_IM_FMT_I;
 	m_pColorTexture->size = 2;
 	m_pDepthTexture->clampS = 1;
@@ -205,7 +205,7 @@ bool DepthBufferToRDRAM::_prepareCopy(u32& _startAddress, bool _copyChunk)
 	return true;
 }
 
-u16 DepthBufferToRDRAM::_FloatToUInt16(f32 _z)
+u16 DepthBufferToRDRAM::_FloatToUInt16(f32 _z, u32 x, u32 y)
 {
 	static const u16 * const zLUT = depthBufferList().getZLUT();
 	u32 idx = 0x3FFFF;

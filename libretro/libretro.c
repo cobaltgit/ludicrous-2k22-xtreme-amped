@@ -341,11 +341,11 @@ void retro_set_environment(retro_environment_t cb)
 void retro_get_system_info(struct retro_system_info *info)
 {
 #if defined(HAVE_OPENGLES2)
-    info->library_name = "LudicrousN64 Xtreme";
+    info->library_name = "LudicrousN64 Xtreme Amped";
 #elif defined(HAVE_OPENGLES3)
-    info->library_name = "LudicrousN64 Xtreme";
+    info->library_name = "LudicrousN64 Xtreme Amped";
 #else
-    info->library_name = "LudicrousN64 Xtreme";
+    info->library_name = "LudicrousN64 Xtreme Amped";
 #endif
 #ifndef GIT_VERSION
 #define GIT_VERSION

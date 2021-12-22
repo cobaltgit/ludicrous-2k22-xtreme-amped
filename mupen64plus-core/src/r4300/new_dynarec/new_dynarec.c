@@ -1322,8 +1322,7 @@ void invalidate_all_pages()
     }
   }
   #if NEW_DYNAREC == NEW_DYNAREC_ARM
-  __clear_cache((void *)base_addr,(void *)base_addr+(1<<TARGET_SIZE_2));
-  //cacheflush((void *)base_addr,(void *)base_addr+(1<<TARGET_SIZE_2),0);
+  cache_flush((char*)base_addr,(char *)base_addr+(1<<TARGET_SIZE_2));
   #endif
   #ifdef USE_MINI_HT
   memset(mini_ht,-1,sizeof(mini_ht));
@@ -5058,7 +5057,7 @@ static void ujump_assemble(int i,struct regstat *i_regs)
   address_generation(i+1,i_regs,regs[i].regmap_entry);
   
   //Deal with ROM Hacks
-  if(rt1[i+1]==31)
+  if((rt1[i]==31)&&(rt1[i+1]==31||rs1[i+1]==31||rs2[i+1]==31))
   {
     assert(rs1[i+1]==31);
     signed char rt=get_reg(branch_regs[i].regmap,31);
@@ -11069,8 +11068,7 @@ int new_recompile_block(int addr)
   ptr[slen]=dirty_entry_count;
 
   #if NEW_DYNAREC == NEW_DYNAREC_ARM
-  __clear_cache((void *)beginning,out);
-  //cacheflush((void *)beginning,out,0);
+  cache_flush((char *)beginning,out);
   #endif
 
   // If we're within 256K of the end of the buffer,

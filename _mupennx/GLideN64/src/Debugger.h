@@ -104,6 +104,7 @@ private:
 		gDPInfo::FillColor fill_color;
 		gDPInfo::PrimColor prim_color;
 		f32 primDepthZ, primDepthDeltaZ;
+		f32 fogMultiplier, fogOffset;
 		s32 K4, K5;
 
 		f32 getScreenX(const Vertex & _v) const;
@@ -140,7 +141,7 @@ private:
 	void _addTrianglesByElements(const graphics::Context::DrawTriangleParameters & _params);
 	void _debugKeys();
 	void _drawFrameBuffer(FrameBuffer * _pBuffer);
-	void _drawDebugInfo(FrameBuffer * _pBuffer);
+	void _drawDebugInfo();
 	void _setTextureCombiner();
 	void _setLineCombiner();
 	void _drawTextureFrame(const RectVertex * _rect);

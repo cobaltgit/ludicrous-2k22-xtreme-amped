@@ -270,6 +270,38 @@ static uintptr_t jump_table_symbols[] = {
   (intptr_t)neg_d
 };
 
+static void cache_flush(char* start, char* end)
+{
+    // Don't rely on GCC's __clear_cache implementation, as it caches
+    // icache/dcache cache line sizes, that can vary between cores on
+    // big.LITTLE architectures.
+    uint64_t addr, ctr_el0;
+    static size_t icache_line_size = 0xffff, dcache_line_size = 0xffff;
+    size_t isize, dsize;
+
+    __asm__ volatile("mrs %0, ctr_el0" : "=r"(ctr_el0));
+    isize = 4 << ((ctr_el0 >> 0) & 0xf);
+    dsize = 4 << ((ctr_el0 >> 16) & 0xf);
+
+    // use the global minimum cache line size
+    icache_line_size = isize = icache_line_size < isize ? icache_line_size : isize;
+    dcache_line_size = dsize = dcache_line_size < dsize ? dcache_line_size : dsize;
+
+    addr = (uint64_t)start & ~(uint64_t)(dsize - 1);
+    for (; addr < (uint64_t)end; addr += dsize)
+        // use "civac" instead of "cvau", as this is the suggested workaround for
+        // Cortex-A53 errata 819472, 826319, 827319 and 824069.
+            __asm__ volatile("dc civac, %0" : : "r"(addr) : "memory");
+    __asm__ volatile("dsb ish" : : : "memory");
+
+    addr = (uint64_t)start & ~(uint64_t)(isize - 1);
+    for (; addr < (uint64_t)end; addr += isize)
+            __asm__ volatile("ic ivau, %0" : : "r"(addr) : "memory");
+
+    __asm__ volatile("dsb ish" : : : "memory");
+    __asm__ volatile("isb" : : : "memory");
+}
+
 /* Linker */
 
 static void set_jump_target(intptr_t addr,uintptr_t target)
@@ -432,7 +464,7 @@ static void *dynamic_linker_ds(void * src, u_int vaddr)
         //assert((ptr2[4]&0xfffffc1f)==0xd61f0000); //br
         add_link(vaddr, ptr2);
         set_jump_target((intptr_t)ptr, (uintptr_t)head->addr);
-        __clear_cache((void*)ptr, (void*)((uintptr_t)ptr+4));
+        cache_flush((void*)ptr_rx, (void*)(ptr_rx+4));
       }
       #ifdef NEW_DYNAREC_DEBUG
       print_debug_info(vaddr);
@@ -6696,9 +6728,7 @@ static void do_clear_cache(void)
               j++;
             }else{
 #ifndef HAVE_LIBNX
-              __clear_cache((char *)start,(char *)end);
-#endif
-              //cacheflush((void *)start,(void *)end,0);
+              cache_flush((char *)start,(char *)end);
               break;
             }
           }

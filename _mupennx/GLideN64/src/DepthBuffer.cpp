@@ -98,12 +98,12 @@ void DepthBuffer::_initDepthImageTexture(FrameBuffer * _pBuffer, CachedTexture& 
 
 void DepthBuffer::initDepthImageTexture(FrameBuffer * _pBuffer)
 {
-	if (config.frameBufferEmulation.N64DepthCompare == 0 || m_pDepthImageZTexture != nullptr)
+	if (config.frameBufferEmulation.N64DepthCompare == Config::dcDisable || m_pDepthImageZTexture != nullptr)
 		return;
 
-	m_pDepthImageZTexture = textureCache().addFrameBufferTexture(false);
+	m_pDepthImageZTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 	m_ZTextureClearFBO = gfxContext.createFramebuffer();
-	m_pDepthImageDeltaZTexture = textureCache().addFrameBufferTexture(false);
+	m_pDepthImageDeltaZTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 	m_DeltaZTextureClearFBO = gfxContext.createFramebuffer();
 
 	_initDepthImageTexture(_pBuffer, *m_pDepthImageZTexture, m_ZTextureClearFBO);
@@ -112,7 +112,7 @@ void DepthBuffer::initDepthImageTexture(FrameBuffer * _pBuffer)
 	depthBufferList().clearBuffer();
 }
 
-void DepthBuffer::_initDepthBufferTexture(FrameBuffer * _pBuffer, CachedTexture * _pTexture, bool _multisample)
+void DepthBuffer::_initDepthBufferTexture(const FrameBuffer * _pBuffer, CachedTexture * _pTexture, bool _multisample)
 {
 	const FramebufferTextureFormats & fbTexFormat = gfxContext.getFramebufferTextureFormats();
 
@@ -221,7 +221,8 @@ void DepthBuffer::initDepthBufferTexture(FrameBuffer * _pBuffer)
 {
 	if (Context::DepthFramebufferTextures) {
 		if (m_pDepthBufferTexture == nullptr) {
-			m_pDepthBufferTexture = textureCache().addFrameBufferTexture(config.video.multisampling != 0);
+			m_pDepthBufferTexture = textureCache().addFrameBufferTexture(config.video.multisampling != 0 ?
+					textureTarget::TEXTURE_2D_MULTISAMPLE : textureTarget::TEXTURE_2D);
 			_initDepthBufferTexture(_pBuffer, m_pDepthBufferTexture, config.video.multisampling != 0);
 		}
 	} else {
@@ -229,7 +230,7 @@ void DepthBuffer::initDepthBufferTexture(FrameBuffer * _pBuffer)
 	}
 
 	if (config.video.multisampling != 0 && m_pResolveDepthBufferTexture == nullptr) {
-		m_pResolveDepthBufferTexture = textureCache().addFrameBufferTexture(false);
+		m_pResolveDepthBufferTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
 		_initDepthBufferTexture(_pBuffer, m_pResolveDepthBufferTexture, false);
 	}
 }
@@ -273,19 +274,15 @@ CachedTexture * DepthBuffer::resolveDepthBufferTexture(FrameBuffer * _pBuffer)
 	return m_pResolveDepthBufferTexture;
 }
 
-CachedTexture * DepthBuffer::copyDepthBufferTexture(FrameBuffer * _pBuffer)
+void DepthBuffer::copyDepthBufferTexture(FrameBuffer * _pBuffer, CachedTexture *& _pTexture, graphics::ObjectHandle _copyFBO)
 {
-	if (m_copied)
-		return m_pDepthBufferCopyTexture;
-
-	if (m_pDepthBufferCopyTexture == nullptr) {
-		m_pDepthBufferCopyTexture = textureCache().addFrameBufferTexture(false);
-		_initDepthBufferTexture(_pBuffer, m_pDepthBufferCopyTexture, false);
+	if (_pTexture == nullptr) {
+		_pTexture = textureCache().addFrameBufferTexture(textureTarget::TEXTURE_2D);
+		_initDepthBufferTexture(_pBuffer, _pTexture, false);
 	}
 
-
 	Context::FrameBufferRenderTarget targetParams;
-	targetParams.bufferHandle = m_copyFBO;
+	targetParams.bufferHandle = _copyFBO;
 	targetParams.bufferTarget = bufferTarget::DRAW_FRAMEBUFFER;
 	targetParams.attachment = bufferAttachment::COLOR_ATTACHMENT0;
 	targetParams.textureHandle = _pBuffer->m_pTexture->frameBufferTexture == CachedTexture::fbMultiSample ?
@@ -296,22 +293,17 @@ CachedTexture * DepthBuffer::copyDepthBufferTexture(FrameBuffer * _pBuffer)
 	gfxContext.addFrameBufferRenderTarget(targetParams);
 
 	targetParams.attachment = bufferAttachment::DEPTH_ATTACHMENT;
-	targetParams.textureHandle = m_pDepthBufferCopyTexture->name;
+	targetParams.textureHandle = _pTexture->name;
 
 	gfxContext.addFrameBufferRenderTarget(targetParams);
 
-
 	Context::BlitFramebuffersParams blitParams;
 	blitParams.readBuffer = _pBuffer->m_FBO;
-	blitParams.drawBuffer = m_copyFBO;
-	blitParams.srcX0 = 0;
-	blitParams.srcY0 = 0;
-	blitParams.srcX1 = m_pDepthBufferTexture->width;
-	blitParams.srcY1 = m_pDepthBufferTexture->height;
-	blitParams.dstX0 = 0;
-	blitParams.dstY0 = 0;
-	blitParams.dstX1 = m_pDepthBufferTexture->width;
-	blitParams.dstY1 = m_pDepthBufferTexture->height;
+	blitParams.drawBuffer = _copyFBO;
+	blitParams.srcX0 = blitParams.dstX0 = 0;
+	blitParams.srcY0 = blitParams.dstY0 = 0;
+	blitParams.srcX1 = blitParams.dstX1 = _pTexture->width;
+	blitParams.srcY1 = blitParams.dstY1 = _pTexture->height;
 	blitParams.mask = blitMask::DEPTH_BUFFER;
 	blitParams.filter = textureParameters::FILTER_NEAREST;
 
@@ -319,7 +311,14 @@ CachedTexture * DepthBuffer::copyDepthBufferTexture(FrameBuffer * _pBuffer)
 
 	gfxContext.bindFramebuffer(bufferTarget::READ_FRAMEBUFFER, ObjectHandle::defaultFramebuffer);
 	gfxContext.bindFramebuffer(bufferTarget::DRAW_FRAMEBUFFER, _pBuffer->m_FBO);
+}
 
+CachedTexture * DepthBuffer::copyDepthBufferTexture(FrameBuffer * _pBuffer)
+{
+	if (m_copied)
+		return m_pDepthBufferCopyTexture;
+
+	DepthBuffer::copyDepthBufferTexture(_pBuffer, m_pDepthBufferCopyTexture, m_copyFBO);
 	m_copied = true;
 	return m_pDepthBufferCopyTexture;
 }
@@ -492,7 +491,7 @@ void DepthBufferList::clearBuffer()
 	if (m_pCurrent != nullptr)
 		m_pCurrent->m_cleared = true;
 
-	if (config.frameBufferEmulation.enable == 0 || config.frameBufferEmulation.N64DepthCompare == 0) {
+	if (config.frameBufferEmulation.enable == 0 || config.frameBufferEmulation.N64DepthCompare == Config::dcDisable) {
 		gfxContext.clearDepthBuffer();
 		return;
 	}

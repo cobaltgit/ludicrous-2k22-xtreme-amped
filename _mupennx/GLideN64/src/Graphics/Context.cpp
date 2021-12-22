@@ -15,6 +15,8 @@ bool Context::IntegerTextures = false;
 bool Context::ClipControl = false;
 bool Context::FramebufferFetch = false;
 bool Context::TextureBarrier = false;
+bool Context::EglImage = false;
+bool Context::EglImageFramebuffer = false;
 
 Context::Context() {}
 
@@ -38,6 +40,8 @@ void Context::init()
 	ClipControl = m_impl->isSupported(SpecialFeatures::ClipControl);
 	FramebufferFetch = m_impl->isSupported(SpecialFeatures::FramebufferFetch);
 	TextureBarrier = m_impl->isSupported(SpecialFeatures::TextureBarrier);
+	EglImage = m_impl->isSupported(SpecialFeatures::EglImage);
+	EglImageFramebuffer =  m_impl->isSupported(SpecialFeatures::EglImageFramebuffer);
 }
 
 void Context::destroy()
@@ -276,9 +280,24 @@ ShaderProgram * Context::createTexrectDrawerClearShader()
 	return m_impl->createTexrectDrawerClearShader();
 }
 
-ShaderProgram * Context::createTexrectCopyShader()
+ShaderProgram * Context::createTexrectUpscaleCopyShader()
 {
-	return m_impl->createTexrectCopyShader();
+	return m_impl->createTexrectUpscaleCopyShader();
+}
+
+ShaderProgram * Context::createTexrectColorAndDepthUpscaleCopyShader()
+{
+	return m_impl->createTexrectColorAndDepthUpscaleCopyShader();
+}
+
+ShaderProgram * Context::createTexrectDownscaleCopyShader()
+{
+  return m_impl->createTexrectDownscaleCopyShader();
+}
+
+ShaderProgram * Context::createTexrectColorAndDepthDownscaleCopyShader()
+{
+  return m_impl->createTexrectColorAndDepthDownscaleCopyShader();
 }
 
 ShaderProgram * Context::createGammaCorrectionShader()

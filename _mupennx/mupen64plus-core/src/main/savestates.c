@@ -25,6 +25,8 @@
 #ifdef USE_SDL
 #include <SDL.h>
 #include <SDL_thread.h>
+#else
+#include <pthread.h>
 #endif
 #include <stddef.h>
 #include <stdint.h>
@@ -60,11 +62,14 @@ enum { GB_CART_FINGERPRINT_OFFSET = 0x134 };
 enum { DD_DISK_ID_OFFSET = 0x43670 };
 
 static const char* savestate_magic = "M64+SAVE";
-static const int savestate_latest_version = 0x00010500;  /* 1.5 */
+static const int savestate_latest_version = 0x00010600;  /* 1.6 */
 static const unsigned char pj64_magic[4] = { 0xC8, 0xA6, 0xD8, 0x23 };
 
 static savestates_job job = savestates_job_nothing;
 static savestates_type type = savestates_type_unknown;
+
+// Libretro will re-use fname for the ptr
+// This avoids ifdef shenanigans
 static char *fname = NULL;
 
 static unsigned int slot = 0;
@@ -72,6 +77,8 @@ static int autoinc_save_slot = 0;
 
 #ifdef USE_SDL
 static SDL_mutex *savestates_lock;
+#else
+static pthread_mutex_t savestates_lock;
 #endif
 
 struct savestate_work {
@@ -158,16 +165,23 @@ savestates_job savestates_get_job(void)
 
 void savestates_set_job(savestates_job j, savestates_type t, const char *fn)
 {
+#ifndef __LIBRETRO__
     if (fname != NULL)
     {
         free(fname);
         fname = NULL;
     }
-
+#endif // __LIBRETRO__
     job = j;
     type = t;
+#ifndef __LIBRETRO__
     if (fn != NULL)
         fname = strdup(fn);
+#else
+    pthread_mutex_lock(&savestates_lock);
+    fname = (char*)fn;
+    pthread_mutex_unlock(&savestates_lock);
+#endif // __LIBRETRO__
 }
 
 static void savestates_clear_job(void)
@@ -212,6 +226,8 @@ int savestates_load_m64p(struct device* dev, const void *data)
 
 #ifdef USE_SDL
     SDL_LockMutex(savestates_lock);
+#else
+    pthread_mutex_lock(&savestates_lock);
 #endif
 
 #ifndef __LIBRETRO__
@@ -271,6 +287,8 @@ int savestates_load_m64p(struct device* dev, const void *data)
 #endif
 #ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#else
+        pthread_mutex_unlock(&savestates_lock);
 #endif
         return 0;
     }
@@ -283,6 +301,8 @@ int savestates_load_m64p(struct device* dev, const void *data)
 #endif
 #ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#else
+        pthread_mutex_unlock(&savestates_lock);
 #endif
         return 0;
     }
@@ -299,6 +319,8 @@ int savestates_load_m64p(struct device* dev, const void *data)
 #endif
 #ifdef USE_SDL
         SDL_UnlockMutex(savestates_lock);
+#else
+        pthread_mutex_unlock(&savestates_lock);
 #endif
         return 0;
     }
@@ -371,6 +393,8 @@ int savestates_load_m64p(struct device* dev, const void *data)
 #endif
 #ifdef USE_SDL
     SDL_UnlockMutex(savestates_lock);
+#else
+    pthread_mutex_unlock(&savestates_lock);
 #endif
 
     // Parse savestate
@@ -546,7 +570,7 @@ int savestates_load_m64p(struct device* dev, const void *data)
     savestates_load_set_pc(&dev->r4300, GETDATA(curr, uint32_t));
 
     *r4300_cp0_next_interrupt(&dev->r4300.cp0) = GETDATA(curr, uint32_t);
-    dev->vi.next_vi = GETDATA(curr, uint32_t);
+    curr += 4; /* here there used to be next_vi */
     dev->vi.field = GETDATA(curr, uint32_t);
 
     // assert(savestateData+savestateSize == curr)
@@ -584,7 +608,7 @@ int savestates_load_m64p(struct device* dev, const void *data)
 
         /* extra cart_rom state */
         dev->cart.cart_rom.last_write = GETDATA(curr, uint32_t);
-        dev->cart.cart_rom.rom_written = GETDATA(curr, uint32_t);
+        curr += 4; /* used to be cart_rom.rom_written */
 
         /* extra sp state */
         curr += 4; /* here there used to be rsp_task_locked */
@@ -724,7 +748,7 @@ int savestates_load_m64p(struct device* dev, const void *data)
 
         /* extra cart_rom state */
         dev->cart.cart_rom.last_write = GETDATA(curr, uint32_t);
-        dev->cart.cart_rom.rom_written = GETDATA(curr, uint32_t);
+        curr +=4; /* used to be cart_rom.rom_written */
 
         /* extra sp state */
         curr += 4; /* here there used to be rsp_task_locked */
@@ -919,7 +943,6 @@ int savestates_load_m64p(struct device* dev, const void *data)
 
         /* extra cart_rom state */
         dev->cart.cart_rom.last_write = 0;
-        dev->cart.cart_rom.rom_written = 0;
 
         /* extra af-rtc state */
         dev->cart.af_rtc.control = 0x200;
@@ -1076,7 +1099,7 @@ static int savestates_load_pj64(struct device* dev,
     *r4300_cp0_next_interrupt(&dev->r4300.cp0) = (cp0_regs[CP0_COMPARE_REG] < vi_timer)
                   ? cp0_regs[CP0_COMPARE_REG]
                   : vi_timer;
-    dev->vi.next_vi = vi_timer;
+
     dev->vi.field = 0;
     *((unsigned int*)&buffer[0]) = VI_INT;
     *((unsigned int*)&buffer[4]) = vi_timer;
@@ -1199,7 +1222,6 @@ static int savestates_load_pj64(struct device* dev,
 
     /* extra cart_rom state */
     dev->cart.cart_rom.last_write = 0;
-    dev->cart.cart_rom.rom_written = 0;
 
     // ri_register
     dev->ri.regs[RI_MODE_REG]         = GETDATA(curr, uint32_t);
@@ -1437,9 +1459,12 @@ static savestates_type savestates_detect_type(char *filepath)
 
 int savestates_load(void)
 {
+    int ret = 0;
+    struct device* dev = &g_dev;
+
+#ifndef __LIBRETRO__
     FILE *fPtr = NULL;
     char *filepath = NULL;
-    int ret = 0;
 
     if (fname == NULL) // For slots, autodetect the savestate type
     {
@@ -1494,8 +1519,6 @@ int savestates_load(void)
 
     if (filepath != NULL)
     {
-        struct device* dev = &g_dev;
-
         switch (type)
         {
             case savestates_type_m64p: ret = savestates_load_m64p(dev, filepath); break;
@@ -1506,6 +1529,15 @@ int savestates_load(void)
         free(filepath);
         filepath = NULL;
     }
+#else
+    if(fname)
+    {
+        ret = savestates_load_m64p(dev, fname);
+        fname = NULL;
+    } else {
+        ret = 0;
+    }
+#endif // __LIBRETRO__
 
     // deliver callback to indicate completion of state loading operation
     StateChanged(M64CORE_STATE_LOADCOMPLETE, ret);
@@ -1521,6 +1553,8 @@ static void savestates_save_m64p_work(struct work_struct *work)
 
 #ifdef USE_SDL
     SDL_LockMutex(savestates_lock);
+#else
+    pthread_mutex_lock(&savestates_lock);
 #endif
 
 #ifndef __LIBRETRO__
@@ -1558,6 +1592,8 @@ static void savestates_save_m64p_work(struct work_struct *work)
 
 #ifdef USE_SDL
     SDL_UnlockMutex(savestates_lock);
+#else
+    pthread_mutex_unlock(&savestates_lock);
 #endif
 }
 
@@ -1815,7 +1851,7 @@ int savestates_save_m64p(const struct device* dev, void *data)
     PUTDATA(curr, uint32_t, *r4300_pc((struct r4300_core*)&dev->r4300));
 
     PUTDATA(curr, uint32_t, *r4300_cp0_next_interrupt((struct cp0*)&dev->r4300.cp0));
-    PUTDATA(curr, uint32_t, dev->vi.next_vi);
+    PUTDATA(curr, uint32_t, 0); /* here there used to be next_vi */
     PUTDATA(curr, uint32_t, dev->vi.field);
 
     to_little_endian_buffer(queue, 4, sizeof(queue)/4);
@@ -1831,7 +1867,7 @@ int savestates_save_m64p(const struct device* dev, void *data)
     PUTDATA(curr, uint32_t, dev->ai.delayed_carry);
 
     PUTDATA(curr, uint32_t, dev->cart.cart_rom.last_write);
-    PUTDATA(curr, uint32_t, dev->cart.cart_rom.rom_written);
+    PUTDATA(curr, uint32_t, 0); /* used to be cart_rom.rom_written */
 
     PUTDATA(curr, uint32_t, 0); /* here there used to be rsp_task_locked */
 
@@ -1982,7 +2018,11 @@ static int savestates_save_pj64(const struct device* dev,
     PUTARRAY(pj64_magic, curr, unsigned char, 4);
     PUTDATA(curr, unsigned int, SaveRDRAMSize);
     PUTARRAY(dev->cart.cart_rom.rom, curr, unsigned int, 0x40/4);
-    PUTDATA(curr, uint32_t, get_event(&dev->r4300.cp0.q, VI_INT) - cp0_regs[CP0_COUNT_REG]); // vi_timer
+    uint32_t* next_vi = get_event(&dev->r4300.cp0.q, VI_INT);
+    if (next_vi != NULL)
+        PUTDATA(curr, uint32_t, *next_vi - cp0_regs[CP0_COUNT_REG]); // vi_timer
+    else
+        PUTDATA(curr, uint32_t, 0 - cp0_regs[CP0_COUNT_REG]);
     PUTDATA(curr, uint32_t, *r4300_pc((struct r4300_core*)&dev->r4300));
     PUTARRAY(r4300_regs((struct r4300_core*)&dev->r4300), curr, int64_t, 32);
     const cp1_reg* cp1_regs = r4300_cp1_regs((struct cp1*)&dev->r4300.cp1);
@@ -2190,9 +2230,11 @@ static int savestates_save_pj64_unc(const struct device* dev, char *filepath)
 
 int savestates_save(void)
 {
-    char *filepath;
     int ret = 0;
     const struct device* dev = &g_dev;
+
+#ifndef __LIBRETRO__
+    char *filepath;
 
     /* Can only save PJ64 savestates on VI / COMPARE interrupt.
        Otherwise try again in a little while. */
@@ -2218,11 +2260,21 @@ int savestates_save(void)
         }
         free(filepath);
     }
+#else
+    if(fname)
+    {
+        ret = savestates_save_m64p(dev, fname);
+        fname = NULL;
+    } else {
+        ret = 0;
+    }
+#endif // __LIBRETRO__
 
     // deliver callback to indicate completion of state saving operation
     StateChanged(M64CORE_STATE_SAVECOMPLETE, ret);
 
     savestates_clear_job();
+
     return ret;
 }
 

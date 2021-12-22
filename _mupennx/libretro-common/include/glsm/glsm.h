@@ -33,6 +33,7 @@ RETRO_BEGIN_DECLS
 
 #if defined(HAVE_OPENGLES2)
 typedef double GLclampd;
+typedef double GLdouble;
 typedef struct __GLsync* GLsync;
 typedef uint64_t GLuint64;
 typedef int64_t GLint64;
@@ -46,8 +47,10 @@ typedef double GLdouble;
 #undef GL_DRAW_FRAMEBUFFER_BINDING
 #undef GL_COPY_READ_BUFFER_BINDING
 #undef GL_COPY_WRITE_BUFFER_BINDING
+#ifndef IOS
 #define ptrdiff_t khronos_ssize_t
-#endif
+#endif // !IOS
+#endif // HAVE_OPENGLES3
 
 #if defined(HAVE_OPENGLES2)
 #define RARCH_GL_RENDERBUFFER GL_RENDERBUFFER
@@ -110,6 +113,7 @@ typedef struct glsm_ctx_proc_address
 {
    retro_get_proc_address_t addr;
 } glsm_ctx_proc_address_t;
+void* glsm_get_proc_address(const char* sym);
 
 typedef struct glsm_ctx_params
 {

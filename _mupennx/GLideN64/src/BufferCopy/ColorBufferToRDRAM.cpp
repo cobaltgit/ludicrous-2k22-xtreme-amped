@@ -27,6 +27,7 @@
 #include <Graphics/Parameters.h>
 #include <Graphics/ColorBufferReader.h>
 #include <DisplayWindow.h>
+#include "BlueNoiseTexture.h"
 
 using namespace graphics;
 
@@ -42,6 +43,8 @@ ColorBufferToRDRAM::ColorBufferToRDRAM()
 	m_allowedRealWidths[1] = 480;
 	m_allowedRealWidths[2] = 640;
 }
+
+u32 ColorBufferToRDRAM::m_blueNoiseIdx = 0;
 
 ColorBufferToRDRAM::~ColorBufferToRDRAM()
 {
@@ -65,7 +68,7 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 {
 	const FramebufferTextureFormats & fbTexFormat = gfxContext.getFramebufferTextureFormats();
 
-	m_pTexture = textureCache().addFrameBufferTexture(false);
+	m_pTexture = textureCache().addFrameBufferTexture(Context::EglImage ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D);
 	m_pTexture->format = G_IM_FMT_RGBA;
 	m_pTexture->size = 2;
 	m_pTexture->clampS = 1;
@@ -81,9 +84,15 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 	m_pTexture->height = VI_GetMaxBufferHeight(m_lastBufferWidth);
 	m_pTexture->textureBytes = m_pTexture->width * m_pTexture->height * fbTexFormat.colorFormatBytes;
 
+
+	m_bufferReader.reset(gfxContext.createColorBufferReader(m_pTexture));
+
+	// Skip this since texture is initialized in the EGL color buffer reader
+	if (!Context::EglImage)
 	{
 		Context::InitTextureParams params;
 		params.handle = m_pTexture->name;
+		params.target = textureTarget::TEXTURE_2D;
 		params.width = m_pTexture->width;
 		params.height = m_pTexture->height;
 		params.internalFormat = fbTexFormat.colorInternalFormat;
@@ -91,10 +100,11 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 		params.dataType = fbTexFormat.colorType;
 		gfxContext.init2DTexture(params);
 	}
+
 	{
 		Context::TexParameters params;
 		params.handle = m_pTexture->name;
-		params.target = textureTarget::TEXTURE_2D;
+		params.target = Context::EglImage ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D;
 		params.textureUnitIndex = textureIndices::Tex[0];
 		params.minFilter = textureParameters::FILTER_LINEAR;
 		params.magFilter = textureParameters::FILTER_LINEAR;
@@ -105,7 +115,7 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 		bufTarget.bufferHandle = ObjectHandle(m_FBO);
 		bufTarget.bufferTarget = bufferTarget::DRAW_FRAMEBUFFER;
 		bufTarget.attachment = bufferAttachment::COLOR_ATTACHMENT0;
-		bufTarget.textureTarget = textureTarget::TEXTURE_2D;
+		bufTarget.textureTarget = Context::EglImageFramebuffer ? textureTarget::TEXTURE_EXTERNAL : textureTarget::TEXTURE_2D;
 		bufTarget.textureHandle = m_pTexture->name;
 		gfxContext.addFrameBufferRenderTarget(bufTarget);
 	}
@@ -114,8 +124,6 @@ void ColorBufferToRDRAM::_initFBTexture(void)
 	assert(!gfxContext.isFramebufferError());
 
 	gfxContext.bindFramebuffer(graphics::bufferTarget::DRAW_FRAMEBUFFER, graphics::ObjectHandle::defaultFramebuffer);
-
-	m_bufferReader.reset(gfxContext.createColorBufferReader(m_pTexture));
 }
 
 void ColorBufferToRDRAM::_destroyFBTexure(void)
@@ -211,9 +219,9 @@ bool ColorBufferToRDRAM::_prepareCopy(u32& _startAddress)
 		blitParams.dstY1 = bufferHeight;
 		blitParams.dstWidth = m_pTexture->width;
 		blitParams.dstHeight = m_pTexture->height;
-		blitParams.filter = textureParameters::FILTER_NEAREST;
+		blitParams.filter = textureParameters::FILTER_LINEAR;
 		blitParams.tex[0] = pInputTexture;
-		blitParams.combiner = CombinerInfo::get().getTexrectCopyProgram();
+		blitParams.combiner = CombinerInfo::get().getTexrectDownscaleCopyProgram();
 		blitParams.readBuffer = readBuffer;
 		blitParams.drawBuffer = m_FBO;
 		blitParams.mask = blitMask::COLOR_BUFFER;
@@ -229,17 +237,59 @@ bool ColorBufferToRDRAM::_prepareCopy(u32& _startAddress)
 	return true;
 }
 
-u8 ColorBufferToRDRAM::_RGBAtoR8(u8 _c) {
+u8 ColorBufferToRDRAM::_RGBAtoR8(u8 _c, u32 x, u32 y) {
 	return _c;
 }
 
-u16 ColorBufferToRDRAM::_RGBAtoRGBA16(u32 _c) {
-	RGBA c;
+u16 ColorBufferToRDRAM::_RGBAtoRGBA16(u32 _c, u32 x, u32 y) {
+	// Precalculated 4x4 bayer matrix values for 5Bit
+	static const s32 thresholdMapBayer[4][4] = {
+		{ -4, 2, -3, 4 },
+		{ 0, -2, 2, -1 },
+		{ -3, 3, -4, 3 },
+		{ 1, -1, 1, -2 }
+	};
+
+	// Precalculated 4x4 magic square matrix values for 5Bit
+	static const s32 thresholdMapMagicSquare[4][4] = {
+		{ -4, 2, 2, -1 },
+		{ 3, -2, -3, 1 },
+		{ -3, 0, 4, -2 },
+		{ 3, -1, -4, 1 }
+	};
+
+	union RGBA c;
 	c.raw = _c;
+
+	if (config.generalEmulation.enableDitheringPattern == 0 || config.frameBufferEmulation.nativeResFactor != 1) {
+		// Apply color dithering
+		switch (config.generalEmulation.rdramImageDitheringMode) {
+		case Config::BufferDitheringMode::bdmBayer:
+		case Config::BufferDitheringMode::bdmMagicSquare:
+		{
+			s32 threshold = config.generalEmulation.rdramImageDitheringMode == Config::BufferDitheringMode::bdmBayer ?
+				thresholdMapBayer[x & 3][y & 3] :
+				thresholdMapMagicSquare[x & 3][y & 3];
+			c.r = (u8)std::max(std::min((s32)c.r + threshold, 255), 0);
+			c.g = (u8)std::max(std::min((s32)c.g + threshold, 255), 0);
+			c.b = (u8)std::max(std::min((s32)c.b + threshold, 255), 0);
+		}
+		break;
+		case Config::BufferDitheringMode::bdmBlueNoise:
+		{
+			const BlueNoiseItem& threshold = blueNoiseTex[m_blueNoiseIdx & 7][x & 63][y & 63];
+			c.r = (u8)std::max(std::min((s32)c.r + threshold.r, 255), 0);
+			c.g = (u8)std::max(std::min((s32)c.g + threshold.g, 255), 0);
+			c.b = (u8)std::max(std::min((s32)c.b + threshold.b, 255), 0);
+		}
+		break;
+		}
+	}
+
 	return ((c.r >> 3) << 11) | ((c.g >> 3) << 6) | ((c.b >> 3) << 1) | (c.a == 0 ? 0 : 1);
 }
 
-u32 ColorBufferToRDRAM::_RGBAtoRGBA32(u32 _c) {
+u32 ColorBufferToRDRAM::_RGBAtoRGBA32(u32 _c, u32 x, u32 y) {
 	RGBA c;
 	c.raw = _c;
 	return (c.r << 24) | (c.g << 16) | (c.b << 8) | c.a;
@@ -279,6 +329,7 @@ void ColorBufferToRDRAM::_copy(u32 _startAddress, u32 _endAddress, bool _sync)
 	} else if (m_pCurFrameBuffer->m_size == G_IM_SIZ_16b) {
 		u32 *ptr_src = (u32*)pPixels;
 		u16 *ptr_dst = (u16*)(RDRAM + _startAddress);
+		m_blueNoiseIdx++;
 
 		if (!FBInfo::fbInfo.isSupported() && config.frameBufferEmulation.copyFromRDRAM != 0) {
 			memset(ptr_dst, 0, numPixels * 2);
