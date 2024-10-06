@@ -28,6 +28,7 @@
 #include "memory/memory.h"
 #include "plugin/plugin.h"
 #include "r4300/r4300_core.h"
+#include "../../../custom/GLideN64/GLideN64_libretro.h"
 
 /* XXX: timing hacks */
 enum { NTSC_VERTICAL_RESOLUTION = 525 };
@@ -75,9 +76,14 @@ void poweron_vi(struct vi_controller* vi)
 {
     memset(vi->regs, 0, VI_REGS_COUNT*sizeof(uint32_t));
     vi->field = 0;
-    vi->delay = vi->next_vi = 5000;
+    if(!CountPerScanlineOverride) {
+        vi->delay = vi->next_vi = 0;
+        vi->count_per_scanline = 0;
+    } else {
+        vi->delay = vi->next_vi = 5000;
+        vi->count_per_scanline = CountPerScanlineOverride;
+    }
 }
-
 
 int read_vi_regs(void* opaque, uint32_t address, uint32_t* value)
 {
@@ -147,9 +153,12 @@ void vi_vertical_interrupt_event(struct vi_controller* vi)
     vi->field ^= (vi->regs[VI_STATUS_REG] >> 6) & 0x1;
 
     /* schedule next vertical interrupt */
-    vi->delay = (vi->regs[VI_V_SYNC_REG] == 0)
-            ? 500000
-            : (vi->regs[VI_V_SYNC_REG] + 1) * vi->count_per_scanline;
+    if(CountPerScanlineOverride) {
+        if (vi->regs[VI_V_SYNC_REG] == 0)
+            vi->delay = 500000;
+        else
+            vi->delay = (vi->regs[VI_V_SYNC_REG] + 1) * vi->count_per_scanline;
+    }
 
     vi->next_vi += vi->delay;
 
