@@ -302,7 +302,7 @@ char customini[] =
 "Good_Name=Tetrisphere (U)\n"
 "generalEmulation\\correctTexrectCoords=2\n"
 "\n"
-"[TIGGER%20S%20HONEY%20HUNT]\n"
+"[TIGGER%27S%20HONEY%20HUNT]\n"
 "Good_Name=Tiggers Honey Hunt (E)(U)\n"
 "frameBufferEmulation\\N64DepthCompare=1\n"
 "\n"
