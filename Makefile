@@ -65,7 +65,7 @@ else ifeq ($(ARCH), $(filter $(ARCH), aarch64))
    WITH_DYNAREC = aarch64
 endif
 
-TARGET_NAME := km_ludicrousn64_2k24_xtreme_amped
+TARGET_NAME := km_ludicrousn64_2k22_xtreme_amped
 CC_AS ?= $(CC)
 
 GIT_VERSION ?= " $(shell git rev-parse --short HEAD || echo unknown)"
