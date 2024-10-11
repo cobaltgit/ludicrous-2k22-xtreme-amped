@@ -119,6 +119,14 @@ void Config_LoadConfig()
 {
 	u32 hacks = config.generalEmulation.hacks;
 	config.resetToDefaults();
+
+	// Early
+	if(GLideN64IniBehaviour == 1)
+	{
+		LoadCustomSettings(true);
+		LoadCustomSettings(false);
+	}
+
 	config.frameBufferEmulation.aspect = AspectRatio;
 #if defined(VC) || defined(CLASSIC)
 	config.frameBufferEmulation.enable = 0;
@@ -157,6 +165,11 @@ void Config_LoadConfig()
 	config.video.multisampling = MultiSampling;
 	config.video.cropMode = CropMode;
 	config.generalEmulation.hacks = hacks;
-	LoadCustomSettings(true);
-	LoadCustomSettings(false);
+
+	// Late
+	if(GLideN64IniBehaviour == 0)
+	{
+		LoadCustomSettings(true);
+		LoadCustomSettings(false);
+	}
 }

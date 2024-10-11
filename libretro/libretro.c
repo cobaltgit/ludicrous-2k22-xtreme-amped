@@ -106,6 +106,7 @@ uint32_t ForceDisableExtraMem = 0;
 uint32_t CountPerOp = 0;
 uint32_t TurboBoost = 0;
 uint32_t CountPerScanlineOverride = 0;
+uint32_t GLideN64IniBehaviour = 0;
 
 int rspMode = 0;
 // after the controller's CONTROL* member has been assigned we can update
@@ -161,6 +162,8 @@ static void setup_variables(void)
             "Xtreme TurboBoost; 0|X1|X2|X3|X4|X5|X6" },
         { "LudicrousN64-CountPerOp",
             "Xtreme OverClock; 0|X1|X2|X3|X4|X5|X6|X7|X8|X9|XX" },
+        { "LudicrousN64-GLideN64IniBehaviour",
+            "Xtreme Ini Control; ini_config_priority|core_options_priority|disabled"},
         { "LudicrousN64-BilinearMode",
             "Bilinear filtering mode; standard|3point" },
 #ifndef HAVE_OPENGLES2
@@ -194,7 +197,7 @@ static void setup_variables(void)
             "GPU shader depth write; False|True" },
 #else
         { "LudicrousN64-EnableLegacyBlending",
-            "Less accurate blending mode; False|True" },
+            "Less accurate blending mode; True|False" },
         { "LudicrousN64-EnableFragmentDepthWrite",
             "GPU shader depth write; False|True" },
 #endif
@@ -207,7 +210,7 @@ static void setup_variables(void)
         { "LudicrousN64-txEnhancementMode",
             "Texture Enhancement; None|As Is|X2|X2SAI|HQ2X|HQ2XS|LQ2X|LQ2XS|HQ4X|2xBRZ|3xBRZ|4xBRZ|5xBRZ|6xBRZ" },
         { "LudicrousN64-txFilterIgnoreBG",
-            "Filter background textures; False|True" },
+            "Filter background textures; True|False" },
         { "LudicrousN64-txHiresEnable",
             "Use High-Res textures; False|True" },
         { "LudicrousN64-txHiresFullAlphaChannel",
@@ -826,6 +829,18 @@ void update_variables()
        CountPerOp = 1; 
     else
        CountPerOp = 0;
+    }
+
+   var.key = "LudicrousN64-GLideN64IniBehaviour";
+    var.value = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+       if (!strcmp(var.value, "ini_config_priority"))
+          GLideN64IniBehaviour = 0;
+       else if (!strcmp(var.value, "core_options_priority"))
+          GLideN64IniBehaviour = 1;
+       else if (!strcmp(var.value, "disabled"))
+          GLideN64IniBehaviour = -1;
     }
 
     var.key = "LudicrousN64-r-cbutton";
