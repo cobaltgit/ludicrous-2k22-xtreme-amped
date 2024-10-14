@@ -156,6 +156,9 @@ void Config_LoadConfig()
 #else
 	config.generalEmulation.enableFragmentDepthWrite = EnableFragmentDepthWrite;
 #endif
+
+	config.frameBufferEmulation.copyAuxToRDRAM = EnableCopyAuxToRDRAM;
+
 	config.generalEmulation.enableShadersStorage = EnableShadersStorage;
 	config.textureFilter.txFilterMode = txFilterMode;
 	config.textureFilter.txEnhancementMode = txEnhancementMode;

@@ -68,5 +68,6 @@ extern uint32_t EnableFBEmulation;
 extern uint32_t ForceDisableExtraMem;
 extern uint32_t CountPerScanlineOverride;
 extern uint32_t GLideN64IniBehaviour;
+extern uint32_t EnableCopyAuxToRDRAM;
 
 #endif

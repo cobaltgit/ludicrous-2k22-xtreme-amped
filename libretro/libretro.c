@@ -107,6 +107,7 @@ uint32_t CountPerOp = 0;
 uint32_t TurboBoost = 0;
 uint32_t CountPerScanlineOverride = 0;
 uint32_t GLideN64IniBehaviour = 0;
+uint32_t EnableCopyAuxToRDRAM = 0;
 
 int rspMode = 0;
 // after the controller's CONTROL* member has been assigned we can update
@@ -184,6 +185,8 @@ static void setup_variables(void)
         { "LudicrousN64-EnableCopyDepthToRDRAM",
             "Depth buffer to RDRAM; Off|Software|FromMem" },
 #endif
+        { "LudicrousN64-EnableCopyAuxToRDRAM",
+            "Copy auxiliary buffers to RDRAM; False|True" },
         { "LudicrousN64-EnableHWLighting",
             "Hardware per-pixel lighting; False|True" },
         { "LudicrousN64-CorrectTexrectCoords",
@@ -564,6 +567,13 @@ void update_variables()
             EnableCopyDepthToRDRAM = 1;
         else
             EnableCopyDepthToRDRAM = 0;
+    }
+
+    var.key = "LudicrousN64-EnableCopyAuxToRDRAM";
+    var.value = NULL;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+       EnableCopyAuxToRDRAM = !strcmp(var.value, "False") ? 0 : 1;
     }
 
     var.key = "LudicrousN64-EnableHWLighting";
