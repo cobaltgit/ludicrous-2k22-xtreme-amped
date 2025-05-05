@@ -464,7 +464,7 @@ static void *dynamic_linker_ds(void * src, u_int vaddr)
         //assert((ptr2[4]&0xfffffc1f)==0xd61f0000); //br
         add_link(vaddr, ptr2);
         set_jump_target((intptr_t)ptr, (uintptr_t)head->addr);
-        cache_flush((void*)ptr_rx, (void*)(ptr_rx+4));
+        cache_flush((void*)ptr, (void*)(ptr+4));
       }
       #ifdef NEW_DYNAREC_DEBUG
       print_debug_info(vaddr);
@@ -3755,7 +3755,7 @@ static void wb_valid(signed char pre[],signed char entry[],u_int dirty_pre,u_int
                 emit_storereg64(reg,HOST_TEMPREG);
               }
               else
-                emit_storereg(tr,hr);
+                emit_storereg(reg,hr);
             } else {
               emit_storereg(reg,hr);
             }
@@ -6738,6 +6738,7 @@ static void do_clear_cache(void)
     }
   }
 }
+#endif
 
 // CPU-architecture-specific initialization
 static void arch_init(void) {

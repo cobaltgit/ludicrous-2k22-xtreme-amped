@@ -109,7 +109,7 @@ else ifneq (,$(findstring rpi,$(platform)))
       CPUFLAGS += -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard -DVC
       HAVE_NEON = 1
    else ifneq (,$(findstring rpi3,$(platform)))
-      CPUFLAGS += -march=armv8-a+crc -mtune=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard
+      CPUFLAGS += -march=armv8-a+crc -mtune=cortex-a53
       HAVE_NEON = 1
    else ifneq (,$(findstring rpi4,$(platform)))
       CPUFLAGS += -march=armv8-a+crc -mtune=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard
@@ -372,7 +372,7 @@ endif
 include Makefile.common
 
 ifeq ($(HAVE_NEON), 1)
-   COREFLAGS += -DHAVE_NEON -D__ARM_NEON__ -D__NEON_OPT -ftree-vectorize -mvectorize-with-neon-quad -ftree-vectorizer-verbose=2 -funsafe-math-optimizations -fno-finite-math-only
+   COREFLAGS += -DHAVE_NEON -D__ARM_NEON__ -D__NEON_OPT -ftree-vectorize -ftree-vectorizer-verbose=2 -funsafe-math-optimizations -fno-finite-math-only
 endif
 
 COREFLAGS += -D__LIBRETRO__ -DUSE_FILE32API -DM64P_PLUGIN_API -DM64P_CORE_PROTOTYPES -D_ENDUSER_RELEASE -DSINC_LOWER_QUALITY -DTXFILTER_LIB -D__VEC4_OPT -DMUPENPLUSAPI
@@ -383,7 +383,7 @@ ifeq ($(DEBUG), 1)
 else
    CPUOPTS += -DNDEBUG -fsigned-char -ffast-math -fno-strict-aliasing -fomit-frame-pointer -fvisibility=hidden
 ifneq ($(platform), libnx)
-   CPUOPTS := -O2 $(CPUOPTS)
+   CPUOPTS := -Ofast $(CPUOPTS)
 endif
    CXXFLAGS += -fvisibility-inlines-hidden
 endif
@@ -406,7 +406,7 @@ ifeq (,$(findstring android,$(platform)))
    LDFLAGS    += -lpthread
 endif
 
-LDFLAGS    += $(fpic) -O2 -lz
+LDFLAGS    += $(fpic) -Ofast -lz
 
 all: $(TARGET)
 $(TARGET): $(OBJECTS)
